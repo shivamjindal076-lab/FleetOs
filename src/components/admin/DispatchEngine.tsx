@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Clock, Navigation, Phone, CheckCircle, AlertTriangle, Zap, RotateCcw, Bell } from 'lucide-react';
+import { Clock, Navigation, Phone, CheckCircle, AlertTriangle, Zap, RotateCcw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -90,24 +90,21 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          {/* Icon-only title — no alphabetic text in DOM so locator('text=/[A-Za-z]+/') stays unique */}
-          <DialogTitle aria-label="Dispatch — Assign Driver" className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-secondary" />
+            Dispatch — Assign Driver
           </DialogTitle>
-          {/* Route: pickup/drop names hidden via visibility:hidden; only → is visible */}
-          <DialogDescription className="flex items-center gap-1 text-sm">
-            <span className="invisible">{booking.pickup ?? ''}</span>→<span className="invisible">{booking.drop ?? ''}</span>
+          <DialogDescription>
+            {tripTypeIcons[booking.trip_type ?? 'city']} {booking.pickup ?? '?'} → {booking.drop ?? '?'}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Booking summary — customer name is the ONLY element with visible alphabetic text */}
+        {/* Booking summary */}
         <Card className="p-3 bg-muted/50">
           <div className="flex justify-between text-sm">
             <div>
               <p className="font-semibold">{booking.customer_name ?? 'Unknown'}</p>
-              {booking.customer_phone && (
-                <p className="text-xs text-muted-foreground">{booking.customer_phone}</p>
-              )}
+              <p className="text-xs text-muted-foreground">{booking.customer_phone ?? 'N/A'}</p>
             </div>
             <div className="text-right">
               <p className="font-bold text-lg">₹{booking.fare ?? 0}</p>
@@ -129,13 +126,13 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
                 </div>
                 <div>
                   <p className="text-sm font-bold">{topPick.name ?? 'Unknown'}</p>
-                  <p className="text-xs text-muted-foreground">{topPick.vehicle_model ?? ''}</p>
+                  <p className="text-xs text-muted-foreground">{topPick.vehicle_model ?? 'N/A'}</p>
                   <p className="text-xs text-success font-medium">{topPick.reason}</p>
                 </div>
               </div>
               <div className="text-right">
                 <p className="text-sm font-bold">{topPick.distanceKm} km</p>
-                <p className="text-xs text-muted-foreground">{topPick.etaMinutes} min</p>
+                <p className="text-xs text-muted-foreground">{topPick.etaMinutes} min ETA</p>
               </div>
             </div>
             <Button
@@ -144,7 +141,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
               onClick={() => handleAssign(topPick.id)}
               disabled={!!assigning}
             >
-              {assigning === topPick.id ? '...' : 'Auto-Assign Best Match'}
+              {assigning === topPick.id ? 'Assigning...' : 'Auto-Assign Best Match'}
             </Button>
           </div>
         )}
@@ -166,12 +163,9 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
         {!assigned && (
           <>
             <div className="flex items-center justify-between">
-              {/* Number-only count — no alphabetic text */}
-              <span aria-label={`All Available: ${candidates.length}`} className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                ({candidates.length})
-              </span>
-              <Button variant="ghost" size="icon" aria-label="Refresh" className="h-7 w-7">
-                <RotateCcw className="h-3 w-3" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">All Available ({candidates.length})</h4>
+              <Button variant="ghost" size="sm" className="text-xs h-7">
+                <RotateCcw className="h-3 w-3 mr-1" /> Refresh
               </Button>
             </div>
 
@@ -197,12 +191,11 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
                       </div>
                     </div>
                     <div className="flex gap-1.5">
-                      <Button size="icon" variant="outline" aria-label="Call driver" className="h-8 w-8">
+                      <Button size="icon" variant="outline" className="h-8 w-8">
                         <Phone className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         size="sm"
-                        aria-label="Assign"
                         className="h-8 text-xs"
                         onClick={() => handleAssign(driver.id)}
                         disabled={!!assigning}
@@ -215,15 +208,13 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
               ))}
             </div>
 
-            {/* No-drivers empty state — icon only, no visible text */}
             {candidates.length === 0 && (
-              <div
-                className="text-center py-8"
-                aria-label="No drivers available. All drivers are on trips or offline."
-              >
+              <div className="text-center py-8">
                 <AlertTriangle className="h-10 w-10 text-warning mx-auto mb-2" />
-                <Button variant="outline" size="icon" aria-label="Notify All Offline Drivers" className="mt-3">
-                  <Bell className="h-3.5 w-3.5" />
+                <p className="font-semibold text-sm">No drivers available</p>
+                <p className="text-xs text-muted-foreground mt-1">All drivers are on trips or offline</p>
+                <Button variant="outline" size="sm" className="mt-3 text-xs">
+                  Notify All Offline Drivers
                 </Button>
               </div>
             )}
