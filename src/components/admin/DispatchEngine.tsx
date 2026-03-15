@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { Clock, Navigation, Phone, CheckCircle, AlertTriangle, Zap, RotateCcw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,7 +40,6 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assigned, setAssigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
   const { data: drivers = [] } = useDrivers();
 
   if (!booking) return null;
@@ -51,39 +49,30 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
 
   const handleAssign = async (driverId: number) => {
     setAssigning(driverId);
-    setError(null);
+    try {
+      const { error } = await supabase
+        .from('bookings table')
+        .update({
+          driver_id: driverId,
+          status: 'confirmed',
+        })
+        .eq('id', booking.id);
 
-    const { error: bookingError } = await supabase
-      .from('bookings table')
-      .update({ driver_id: driverId, status: 'confirmed' })
-      .eq('id', booking.id);
+      if (error) throw error;
 
-    if (bookingError) {
-      setError(bookingError.message);
+      setAssigned(true);
+      onAssign(booking.id, driverId);
+
+      setTimeout(() => {
+        setAssigned(false);
+        setAssigning(null);
+        onClose();
+      }, 1500);
+
+    } catch (err: any) {
+      console.error('Dispatch error:', err);
       setAssigning(null);
-      return;
     }
-
-    const { error: driverError } = await supabase
-      .from('Drivers')
-      .update({ status: 'on-trip' })
-      .eq('id', driverId);
-
-    if (driverError) {
-      setError(driverError.message);
-      setAssigning(null);
-      return;
-    }
-
-    queryClient.invalidateQueries({ queryKey: ['bookings'] });
-    queryClient.invalidateQueries({ queryKey: ['drivers'] });
-
-    setAssigned(true);
-    setTimeout(() => {
-      setAssigned(false);
-      setAssigning(null);
-      onClose();
-    }, 1500);
   };
 
   return (

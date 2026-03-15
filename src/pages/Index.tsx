@@ -131,6 +131,15 @@ const Index = () => {
               {t.label}
             </button>
           ))}
+          {!user && (
+            <button
+              onClick={() => setView('admin')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold text-primary-foreground/60 hover:text-primary-foreground transition"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Login
+            </button>
+          )}
           {user && (
             <button
               onClick={() => signOut()}

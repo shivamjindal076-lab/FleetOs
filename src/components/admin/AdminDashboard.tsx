@@ -393,7 +393,11 @@ export function AdminDashboard() {
         booking={dispatchBooking}
         open={!!dispatchBooking}
         onClose={() => setDispatchBooking(null)}
-        onAssign={(bookingId, driverId) => console.log('Assigned', bookingId, driverId)}
+        onAssign={(bookingId, driverId) => {
+          queryClient.invalidateQueries({ queryKey: ['bookings'] });
+          queryClient.invalidateQueries({ queryKey: ['drivers'] });
+          setDispatchBooking(null);
+        }}
       />
 
       <Sheet open={!!paymentBooking} onOpenChange={() => setPaymentBooking(null)}>
