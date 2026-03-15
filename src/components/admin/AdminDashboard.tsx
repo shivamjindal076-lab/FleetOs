@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus } from 'lucide-react';
+import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useDrivers, useBookings, tripTypeIcons, getDriverInitials, type SupabaseBooking } from '@/hooks/useSupabaseData';
+import { useDrivers, useBookings, useTodayCashHandovers, tripTypeIcons, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
 import { DispatchEngine } from './DispatchEngine';
 import { PaymentSummary } from './PaymentSummary';
 import { NewBookingSheet } from './NewBookingSheet';
@@ -46,14 +46,25 @@ export function AdminDashboard() {
   const [paymentAmount, setPaymentAmount] = useState<string>('');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [vehicleSelections, setVehicleSelections] = useState<Record<number, string>>({});
+  const [approvalLoading, setApprovalLoading] = useState<Record<number, boolean>>({});
   const queryClient = useQueryClient();
 
   const { data: drivers = [], isLoading: driversLoading } = useDrivers();
   const { data: bookings = [], isLoading: bookingsLoading } = useBookings();
+  const { data: todayHandovers = [] } = useTodayCashHandovers();
+  const todayDate = new Date().toISOString().split('T')[0];
+  const getDriverCashToday = (driverId: number) =>
+    bookings.filter(
+      b => b.driver_id === driverId &&
+        (b as any).payment_confirmed_at?.startsWith(todayDate) &&
+        b.payment_method === 'cash'
+    ).reduce((s, b) => s + ((b as any).amount_collected ?? 0), 0);
 
   const freeCount = drivers.filter(d => d.status === 'free').length;
   const onTripCount = drivers.filter(d => d.status === 'on-trip').length;
   const offlineCount = drivers.filter(d => d.status === 'offline').length;
+  const pendingDrivers = drivers.filter(d => d.status === 'pending_approval');
   const pendingBookings = bookings.filter(b => b.status === 'pending');
   const scheduledToday = bookings.filter(b => b.scheduled_at && b.status !== 'pending');
   const today = new Date().toISOString().split('T')[0];
@@ -72,6 +83,31 @@ export function AdminDashboard() {
     setPaymentBooking(booking);
     setPaymentAmount(String(booking.fare ?? ''));
     setPaymentError(null);
+  };
+
+  const handleApprove = async (driver: SupabaseDriver) => {
+    const model = vehicleSelections[driver.id] || 'Maruti Swift';
+    setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
+    const { error } = await supabase.from('"Drivers"').update({ status: 'free', vehicle_model: model }).eq('id', driver.id);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      toast(`${driver.name ?? 'Driver'} approved ✓`);
+    }
+    setApprovalLoading(prev => ({ ...prev, [driver.id]: false }));
+  };
+
+  const handleReject = async (driver: SupabaseDriver) => {
+    setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
+    const { error } = await supabase.from('"Drivers"').delete().eq('id', driver.id);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      toast(`${driver.name ?? 'Driver'} removed`);
+    }
+    setApprovalLoading(prev => ({ ...prev, [driver.id]: false }));
   };
 
   const handleMarkPayment = async () => {
@@ -352,33 +388,78 @@ export function AdminDashboard() {
 
         {!isLoading && tab === 'fleet' && (
           <div className="space-y-3 pb-8">
+            {pendingDrivers.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-bold mb-3 flex items-center gap-2 text-amber-600">
+                  <AlertTriangle className="h-4 w-4" /> Pending Approvals ({pendingDrivers.length})
+                </h3>
+                <div className="space-y-2">
+                  {pendingDrivers.map(driver => (
+                    <Card key={driver.id} className="p-4 border-amber-200 bg-amber-50/50">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-bold text-sm">{driver.name}</p>
+                          <p className="text-xs text-muted-foreground">{driver.phone}</p>
+                          <p className="text-xs text-muted-foreground">Joined {new Date(driver.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                        </div>
+                        <select value={vehicleSelections[driver.id] || 'Maruti Swift'} onChange={e => setVehicleSelections(prev => ({ ...prev, [driver.id]: e.target.value }))} className="text-xs border rounded px-2 py-1">
+                          {['Maruti Swift', 'Toyota Innova', 'Mahindra Scorpio', 'Tata Nexon', 'Maruti Ertiga', 'Other'].map(v => <option key={v}>{v}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => handleApprove(driver)} disabled={approvalLoading[driver.id]} className="flex-1 bg-success text-success-foreground hover:bg-success/90 rounded-lg text-xs">
+                          {approvalLoading[driver.id] ? '...' : 'Approve'}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleReject(driver)} disabled={approvalLoading[driver.id]} className="flex-1 border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs">
+                          {approvalLoading[driver.id] ? '...' : 'Reject'}
+                        </Button>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
             {drivers.length === 0 && (
               <Card className="p-6 shadow-card rounded-xl text-center text-sm text-muted-foreground">No drivers found. Add drivers in Supabase.</Card>
             )}
-            {drivers.map((driver) => (
-              <Card key={driver.id} className="p-4 shadow-card rounded-xl">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <div className="h-11 w-11 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-                      {getDriverInitials(driver.name)}
+            {drivers.map((driver) => {
+              const handover = todayHandovers.find(h => h.driver_id === driver.id);
+              const driverCashToday = getDriverCashToday(driver.id);
+              return (
+                <Card key={driver.id} className="p-4 shadow-card rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <div className="h-11 w-11 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
+                        {getDriverInitials(driver.name)}
+                      </div>
+                      <div className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${statusColors[driver.status ?? 'offline']} border-2 border-card`} />
                     </div>
-                    <div className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${statusColors[driver.status ?? 'offline']} border-2 border-card`} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-bold">{driver.name ?? 'Unknown'}</p>
-                    <p className="text-xs text-muted-foreground">{driver.vehicle_model ?? 'N/A'} · {driver.plate_number ?? 'N/A'}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs font-medium capitalize">{(driver.status ?? 'offline').replace('-', ' ')}</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold">{driver.name ?? 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground">{driver.vehicle_model ?? 'N/A'} · {driver.plate_number ?? 'N/A'}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="text-xs font-medium capitalize">{(driver.status ?? 'offline').replace('-', ' ')}</span>
+                        {handover && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/30 font-medium">
+                            Handed over ₹{handover.amount.toLocaleString('en-IN')} at {new Date(handover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                          </span>
+                        )}
+                        {!handover && driverCashToday > 0 && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 font-medium">
+                            ₹{driverCashToday.toLocaleString('en-IN')} pending handover
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="icon" variant="outline" className="h-9 w-9 rounded-lg">
+                        <Phone className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="icon" variant="outline" className="h-9 w-9 rounded-lg">
-                      <Phone className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

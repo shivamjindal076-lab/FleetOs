@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
-import { useMyDriverProfile } from '@/hooks/useSupabaseData';
+import { useMyDriverProfile, useTodayHandover } from '@/hooks/useSupabaseData';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -358,6 +360,9 @@ function ExpenseTracker({
   onAddExpense,
   onAddCollection,
   onDeleteExpense,
+  todayHandover,
+  onHandOver,
+  handoverLoading,
 }: {
   isOffline: boolean;
   expenses: ExpenseEntry[];
@@ -365,6 +370,9 @@ function ExpenseTracker({
   onAddExpense: (e: Omit<ExpenseEntry, 'id' | 'timestamp' | 'isOffline'>) => void;
   onAddCollection: (c: Omit<CashCollection, 'id' | 'timestamp' | 'isOffline'>) => void;
   onDeleteExpense: (id: string) => void;
+  todayHandover: { amount: number; handed_over_at: string } | null;
+  onHandOver: (amount: number) => Promise<void>;
+  handoverLoading: boolean;
 }) {
   const [addingExpense, setAddingExpense] = useState(false);
   const [addingCollection, setAddingCollection] = useState(false);
@@ -377,6 +385,8 @@ function ExpenseTracker({
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
   const totalCollected = collections.reduce((s, c) => s + c.amount, 0);
+  const totalCashCollected = collections.filter(c => c.method === 'cash').reduce((s, c) => s + c.amount, 0);
+  const cashToHandOver = totalCashCollected - totalExpenses;
   const netEarnings = totalCollected - totalExpenses;
   const pendingSync = [...expenses, ...collections].filter(e => e.isOffline).length;
 
@@ -581,6 +591,29 @@ function ExpenseTracker({
           ))}
         </div>
       </Card>
+
+      {/* Cash Handover */}
+      <Card className="p-4 bg-gray-900 border-gray-800">
+        <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Cash Handover</div>
+        <p className="text-2xl font-black text-white mb-1">
+          ₹{Math.max(0, cashToHandOver).toLocaleString('en-IN')}
+        </p>
+        <p className="text-xs text-gray-500 mb-3">cash to hand over to Anil today</p>
+        {cashToHandOver > 0 && !todayHandover && (
+          <button
+            onClick={() => onHandOver(cashToHandOver)}
+            disabled={handoverLoading}
+            className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-white font-bold text-sm disabled:opacity-50"
+          >
+            {handoverLoading ? 'Recording...' : 'Mark as Handed Over to Anil'}
+          </button>
+        )}
+        {todayHandover && (
+          <p className="text-xs text-green-400 font-medium">
+            Recorded at {new Date(todayHandover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+          </p>
+        )}
+      </Card>
     </div>
   );
 }
@@ -675,7 +708,10 @@ export function DriverApp() {
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [collections, setCollections] = useState<CashCollection[]>([]);
   const [alarmDemoFired, setAlarmDemoFired] = useState(false);
+  const [handoverLoading, setHandoverLoading] = useState(false);
   const { data: myProfile } = useMyDriverProfile();
+  const { data: todayHandover, refetch: refetchTodayHandover } = useTodayHandover(myProfile?.id);
+  const queryClient = useQueryClient();
 
   // Simulate alarm firing for the urgent trip after 3 seconds (demo)
   useEffect(() => {
@@ -717,6 +753,25 @@ export function DriverApp() {
   };
 
   const deleteExpense = (id: string) => setExpenses(prev => prev.filter(e => e.id !== id));
+
+  const handleHandOver = async (amount: number) => {
+    if (!myProfile) return;
+    setHandoverLoading(true);
+    const { error } = await supabase
+      .from('cash_handovers')
+      .insert({
+        driver_id: myProfile.id,
+        amount: Math.round(amount * 100) / 100,
+        handed_over_at: new Date().toISOString(),
+      });
+    if (error) {
+      setHandoverLoading(false);
+      return;
+    }
+    await queryClient.invalidateQueries({ queryKey: ['cash-handovers'] });
+    refetchTodayHandover();
+    setHandoverLoading(false);
+  };
 
   const pendingSyncCount = [...expenses, ...collections].filter(e => e.isOffline).length;
   const unconfirmedTrips = scheduledTrips.filter(t => t.status === 'pending_confirm').length;
@@ -966,6 +1021,9 @@ export function DriverApp() {
             onAddExpense={addExpense}
             onAddCollection={addCollection}
             onDeleteExpense={deleteExpense}
+            todayHandover={todayHandover ?? null}
+            onHandOver={handleHandOver}
+            handoverLoading={handoverLoading}
           />
         )}
 

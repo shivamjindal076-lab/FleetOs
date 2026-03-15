@@ -44,6 +44,13 @@ export interface FixedRoute {
   fixed_fare: number | null;
 }
 
+export interface CashHandover {
+  id: number;
+  driver_id: number;
+  amount: number;
+  handed_over_at: string;
+}
+
 export function useDrivers() {
   return useQuery({
     queryKey: ['drivers'],
@@ -121,5 +128,58 @@ export function useMyDriverProfile() {
       return data as SupabaseDriver | null;
     },
     enabled: !!user,
+  });
+}
+
+function startOfTodayISO() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+function endOfTodayISO() {
+  const d = new Date();
+  d.setHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
+export function useTodayHandover(driverId: number | undefined) {
+  return useQuery({
+    queryKey: ['cash-handovers', 'today', driverId],
+    queryFn: async () => {
+      if (driverId == null) return null;
+      const start = startOfTodayISO();
+      const end = endOfTodayISO();
+      const { data, error } = await supabase
+        .from('cash_handovers')
+        .select('id, driver_id, amount, handed_over_at')
+        .eq('driver_id', driverId)
+        .gte('handed_over_at', start)
+        .lte('handed_over_at', end)
+        .order('handed_over_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) return null;
+      return data as CashHandover | null;
+    },
+    enabled: driverId != null,
+  });
+}
+
+export function useTodayCashHandovers() {
+  return useQuery({
+    queryKey: ['cash-handovers', 'today'],
+    queryFn: async () => {
+      const start = startOfTodayISO();
+      const end = endOfTodayISO();
+      const { data, error } = await supabase
+        .from('cash_handovers')
+        .select('id, driver_id, amount, handed_over_at')
+        .gte('handed_over_at', start)
+        .lte('handed_over_at', end)
+        .order('handed_over_at', { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CashHandover[];
+    },
   });
 }
