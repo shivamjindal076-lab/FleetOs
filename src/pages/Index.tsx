@@ -12,7 +12,16 @@ import { Button } from '@/components/ui/button';
 type AppView = 'customer' | 'admin' | 'driver' | 'pricing';
 
 const Index = () => {
-  const [view, setView] = useState<AppView>('customer');
+  const [view, setView] = useState<AppView>(() => {
+    const saved = localStorage.getItem('fleetos_view');
+    if (saved === 'admin' || saved === 'driver' || saved === 'pricing') return saved;
+    return 'customer';
+  });
+
+  const handleSetView = (next: AppView) => {
+    localStorage.setItem('fleetos_view', next);
+    setView(next);
+  };
   const { user, loading, signOut } = useAuth();
   const { isAdmin, isLoading: roleLoading } = useUserRole();
 
@@ -38,7 +47,7 @@ const Index = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setView('customer')}
+            onClick={() => handleSetView('customer')}
             className="rounded-full text-xs"
           >
             ← Back to Customer View
@@ -61,7 +70,7 @@ const Index = () => {
             You don't have permission to access this section. Contact your fleet manager to request admin access.
           </p>
           <div className="flex gap-2 justify-center">
-            <Button variant="outline" size="sm" onClick={() => setView('customer')} className="rounded-full text-xs">
+            <Button variant="outline" size="sm" onClick={() => handleSetView('customer')} className="rounded-full text-xs">
               ← Back to Customer View
             </Button>
             <Button variant="outline" size="sm" onClick={() => signOut()} className="rounded-full text-xs">
@@ -88,10 +97,10 @@ const Index = () => {
             { id: 'driver' as AppView, label: 'Driver', icon: Car, adminOnly: false },
             { id: 'admin' as AppView, label: 'Admin', icon: Settings, adminOnly: true },
             { id: 'pricing' as AppView, label: 'Pricing', icon: DollarSign, adminOnly: true },
-          ]).filter(t => !t.adminOnly || isAdmin).map(t => (
+          ]).map(t => (
             <button
               key={t.id}
-              onClick={() => setView(t.id)}
+              onClick={() => handleSetView(t.id)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold transition ${
                 view === t.id ? 'bg-secondary text-secondary-foreground' : 'text-primary-foreground/60 hover:text-primary-foreground'
               }`}

@@ -54,7 +54,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
     setError(null);
 
     const { error: bookingError } = await supabase
-      .from('"bookings table"')
+      .from('bookings table')
       .update({ driver_id: driverId, status: 'confirmed' })
       .eq('id', booking.id);
 
@@ -65,7 +65,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
     }
 
     const { error: driverError } = await supabase
-      .from('"Drivers"')
+      .from('Drivers')
       .update({ status: 'on-trip' })
       .eq('id', driverId);
 
@@ -200,7 +200,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
                         onClick={() => handleAssign(driver.id)}
                         disabled={!!assigning}
                       >
-                        {assigning === driver.id ? '...' : 'Assign'}
+                        Assign
                       </Button>
                     </div>
                   </div>

@@ -1,11 +1,18 @@
 import { useState } from 'react';
-import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useDrivers, useBookings, tripTypeIcons, getDriverInitials, type SupabaseBooking } from '@/hooks/useSupabaseData';
 import { DispatchEngine } from './DispatchEngine';
+import { PaymentSummary } from './PaymentSummary';
+import { NewBookingSheet } from './NewBookingSheet';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 type Tab = 'today' | 'fleet';
 
@@ -21,9 +28,23 @@ const bookingStatusStyles: Record<string, string> = {
   'in-progress': 'bg-secondary/10 text-secondary-foreground border-secondary/30',
 };
 
+function getPaymentStatus(booking: SupabaseBooking): 'paid' | 'unconfirmed' | 'unpaid' {
+  const b = booking as any;
+  if (b.payment_confirmed_at != null) return 'paid';
+  if (b.amount_collected != null) return 'unconfirmed';
+  return 'unpaid';
+}
+
 export function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('today');
   const [dispatchBooking, setDispatchBooking] = useState<SupabaseBooking | null>(null);
+  const [showNewBooking, setShowNewBooking] = useState(false);
+  const [paymentBooking, setPaymentBooking] = useState<SupabaseBooking | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'upi' | 'card'>('cash');
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const { data: drivers = [], isLoading: driversLoading } = useDrivers();
   const { data: bookings = [], isLoading: bookingsLoading } = useBookings();
@@ -43,6 +64,38 @@ export function AdminDashboard() {
     if (!driverId) return null;
     const driver = drivers.find(d => d.id === driverId);
     return driver?.name ?? null;
+  };
+
+  const openPaymentSheet = (booking: SupabaseBooking) => {
+    setPaymentBooking(booking);
+    setPaymentAmount(String(booking.fare ?? ''));
+    setPaymentError(null);
+  };
+
+  const handleMarkPayment = async () => {
+    if (!paymentBooking) return;
+    setPaymentLoading(true);
+    setPaymentError(null);
+
+    const { error } = await supabase
+      .from('bookings table')
+      .update({
+        amount_collected: parseFloat(paymentAmount),
+        payment_method: paymentMethod,
+        payment_confirmed_at: new Date().toISOString(),
+      })
+      .eq('id', paymentBooking.id);
+
+    if (error) {
+      setPaymentError(error.message);
+      setPaymentLoading(false);
+      return;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    setPaymentBooking(null);
+    toast('Payment logged ✓');
+    setPaymentLoading(false);
   };
 
   return (
@@ -110,6 +163,8 @@ export function AdminDashboard() {
 
         {!isLoading && tab === 'today' && (
           <div className="space-y-6 pb-8">
+            <PaymentSummary bookings={bookings} />
+
             {/* Live Map placeholder */}
             <Card className="p-5 shadow-card rounded-xl">
               <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
@@ -166,11 +221,39 @@ export function AdminDashboard() {
                         <Badge variant="outline" className={bookingStatusStyles[booking.status ?? 'pending']}>{booking.status}</Badge>
                       </div>
                     </div>
-                    <div className="flex gap-2 mt-3">
-                      <Button size="sm" className="bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-lg flex-1 text-xs" onClick={() => setDispatchBooking(booking)}>Assign Driver</Button>
-                      <Button size="sm" variant="outline" className="rounded-lg text-xs">
-                        <Phone className="h-3 w-3 mr-1" />Call
-                      </Button>
+                    <div className="flex items-center justify-between mt-3">
+                      <div className="flex gap-2">
+                        <Button size="sm" aria-label="Assign Driver" className="bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-lg text-xs" onClick={() => setDispatchBooking(booking)}>
+                          <Car className="h-3 w-3 mr-1" />Assign
+                        </Button>
+                        <Button size="sm" variant="outline" className="rounded-lg text-xs">
+                          <Phone className="h-3 w-3 mr-1" />Call
+                        </Button>
+                      </div>
+                      <button onClick={() => openPaymentSheet(booking)} className="flex items-center gap-1">
+                        {getPaymentStatus(booking) === 'paid' && (
+                          <>
+                            <span className="h-4 w-4 rounded-full bg-success flex items-center justify-center">
+                              <CheckCircle className="h-2.5 w-2.5 text-success-foreground" />
+                            </span>
+                            <span className="text-xs text-success font-medium">Paid</span>
+                          </>
+                        )}
+                        {getPaymentStatus(booking) === 'unconfirmed' && (
+                          <>
+                            <span className="h-4 w-4 rounded-full bg-warning flex items-center justify-center">
+                              <Clock className="h-2.5 w-2.5 text-warning-foreground" />
+                            </span>
+                            <span className="text-xs text-warning font-medium">Unconfirmed</span>
+                          </>
+                        )}
+                        {getPaymentStatus(booking) === 'unpaid' && (
+                          <>
+                            <Clock className="h-3.5 w-3.5 text-destructive" />
+                            <span className="text-xs text-destructive font-medium">Unpaid</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </Card>
                 ))}
@@ -197,6 +280,32 @@ export function AdminDashboard() {
                         <p className="text-sm font-bold">₹{booking.fare ?? 0}</p>
                         <p className="text-xs text-muted-foreground">{getDriverName(booking.driver_id) ?? 'Unassigned'}</p>
                       </div>
+                    </div>
+                    <div className="flex justify-end mt-2">
+                      <button onClick={() => openPaymentSheet(booking)} className="flex items-center gap-1">
+                        {getPaymentStatus(booking) === 'paid' && (
+                          <>
+                            <span className="h-4 w-4 rounded-full bg-success flex items-center justify-center">
+                              <CheckCircle className="h-2.5 w-2.5 text-success-foreground" />
+                            </span>
+                            <span className="text-xs text-success font-medium">Paid</span>
+                          </>
+                        )}
+                        {getPaymentStatus(booking) === 'unconfirmed' && (
+                          <>
+                            <span className="h-4 w-4 rounded-full bg-warning flex items-center justify-center">
+                              <Clock className="h-2.5 w-2.5 text-warning-foreground" />
+                            </span>
+                            <span className="text-xs text-warning font-medium">Unconfirmed</span>
+                          </>
+                        )}
+                        {getPaymentStatus(booking) === 'unpaid' && (
+                          <>
+                            <Clock className="h-3.5 w-3.5 text-destructive" />
+                            <span className="text-xs text-destructive font-medium">Unpaid</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </Card>
                 ))}
@@ -267,12 +376,79 @@ export function AdminDashboard() {
         )}
       </div>
 
+      <button
+        onClick={() => setShowNewBooking(true)}
+        className="fixed bottom-24 right-6 z-40 h-14 w-14 rounded-full bg-secondary text-secondary-foreground shadow-elevated flex items-center justify-center"
+      >
+        <Plus className="h-6 w-6" />
+      </button>
+
+      <NewBookingSheet
+        open={showNewBooking}
+        onClose={() => setShowNewBooking(false)}
+        drivers={drivers}
+      />
+
       <DispatchEngine
         booking={dispatchBooking}
         open={!!dispatchBooking}
         onClose={() => setDispatchBooking(null)}
         onAssign={(bookingId, driverId) => console.log('Assigned', bookingId, driverId)}
       />
+
+      <Sheet open={!!paymentBooking} onOpenChange={() => setPaymentBooking(null)}>
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
+          <SheetHeader className="mb-4">
+            <SheetTitle>Log Payment</SheetTitle>
+          </SheetHeader>
+          {paymentBooking && (
+            <div className="space-y-4">
+              <Card className="p-3 bg-muted/50">
+                <p className="text-sm font-semibold">{paymentBooking.customer_name ?? 'Unknown'}</p>
+                <p className="text-xs text-muted-foreground">{paymentBooking.pickup ?? '?'} → {paymentBooking.drop ?? '?'}</p>
+                <p className="text-sm font-bold mt-1">₹{paymentBooking.fare ?? 0}</p>
+              </Card>
+
+              <div>
+                <label htmlFor="payment-amount" className="text-sm font-medium mb-1.5 block">Amount collected</label>
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  placeholder="Amount"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-2">
+                {(['cash', 'upi', 'card'] as const).map((method) => (
+                  <Button
+                    key={method}
+                    size="sm"
+                    variant={paymentMethod === method ? 'default' : 'outline'}
+                    className={paymentMethod === method ? 'bg-secondary text-secondary-foreground hover:bg-secondary/90' : ''}
+                    onClick={() => setPaymentMethod(method)}
+                  >
+                    {method.charAt(0).toUpperCase() + method.slice(1)}
+                  </Button>
+                ))}
+              </div>
+
+              {paymentError && (
+                <p className="text-sm text-destructive">{paymentError}</p>
+              )}
+
+              <Button
+                className="w-full"
+                disabled={paymentLoading}
+                onClick={handleMarkPayment}
+              >
+                {paymentLoading ? 'Saving...' : 'Mark as Received'}
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
