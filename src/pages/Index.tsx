@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CustomerHome } from '@/components/customer/CustomerHome';
 import { AdminDashboard } from '@/components/admin/AdminDashboard';
 import { DriverApp } from '@/components/driver/DriverApp';
@@ -23,12 +23,19 @@ const Index = () => {
     setView(next);
   };
   const { user, loading, signOut } = useAuth();
-  const { isAdmin, isLoading: roleLoading } = useUserRole();
+  const { isAdmin, isDriver, isLoading: roleLoading } = useUserRole();
+
+  useEffect(() => {
+    if (!user || roleLoading) return;
+    if (isAdmin) setView('admin');
+    else if (isDriver) setView('driver');
+  }, [user, isAdmin, isDriver, roleLoading]);
 
   const protectedViews: AppView[] = ['admin', 'driver', 'pricing'];
   const adminViews: AppView[] = ['admin', 'pricing'];
   const needsAuth = protectedViews.includes(view);
   const needsAdmin = adminViews.includes(view);
+  const needsDriver = view === 'driver';
 
   if (loading || (user && roleLoading)) {
     return (
@@ -52,6 +59,19 @@ const Index = () => {
           >
             ← Back to Customer View
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (needsDriver && user && !isDriver && !isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center px-6">
+          <p className="text-sm text-muted-foreground">Driver access only.</p>
+          <button onClick={() => setView('customer')} className="mt-4 text-xs underline">
+            Back to Customer View
+          </button>
         </div>
       </div>
     );
@@ -93,11 +113,13 @@ const Index = () => {
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
         <div className="flex items-center gap-1 bg-primary/95 backdrop-blur-sm rounded-full px-1.5 py-1.5 shadow-elevated">
           {([
-            { id: 'customer' as AppView, label: 'Customer', icon: Car, adminOnly: false },
-            { id: 'driver' as AppView, label: 'Driver', icon: Car, adminOnly: false },
-            { id: 'admin' as AppView, label: 'Admin', icon: Settings, adminOnly: true },
-            { id: 'pricing' as AppView, label: 'Pricing', icon: DollarSign, adminOnly: true },
-          ]).map(t => (
+            { id: 'customer' as AppView, label: 'Customer', icon: Car, show: true },
+            { id: 'driver' as AppView, label: 'Driver', icon: Car, show: isDriver },
+            { id: 'admin' as AppView, label: 'Admin', icon: Settings, show: isAdmin },
+            { id: 'pricing' as AppView, label: 'Pricing', icon: DollarSign, show: isAdmin },
+          ])
+            .filter(t => t.show)
+            .map(t => (
             <button
               key={t.id}
               onClick={() => handleSetView(t.id)}
