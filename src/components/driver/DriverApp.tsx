@@ -141,6 +141,41 @@ function TripAlarm({
   const [countdown, setCountdown] = useState(30);
 
   useEffect(() => {
+    // Vibration (mobile only)
+    if ('vibrate' in navigator) {
+      navigator.vibrate([500, 200, 500, 200, 500, 200, 500]);
+    }
+
+    // Repeating beep via Web Audio API
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    let stopped = false;
+
+    const playBeep = () => {
+      if (stopped) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.6, ctx.currentTime);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+      osc.onended = () => {
+        if (!stopped) setTimeout(playBeep, 200);
+      };
+    };
+
+    playBeep();
+
+    return () => {
+      stopped = true;
+      ctx.close();
+      if ('vibrate' in navigator) navigator.vibrate(0);
+    };
+  }, []);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       setCountdown(c => {
         if (c <= 1) { clearInterval(interval); onDismiss(); return 0; }

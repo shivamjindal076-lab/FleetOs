@@ -28,18 +28,14 @@ const bookingStatusStyles: Record<string, string> = {
   'in-progress': 'bg-secondary/10 text-secondary-foreground border-secondary/30',
 };
 
-const paymentStatusStyles: Record<'paid' | 'unpaid' | 'pending', string> = {
-  paid: 'bg-success/10 text-success border-success/30',
-  unpaid: 'bg-destructive/10 text-destructive border-destructive/30',
-  pending: 'bg-muted/40 text-muted-foreground border-border/40',
+const getPaymentBadge = (booking: SupabaseBooking) => {
+  if (!booking.payment_confirmed_at) return 'pending';
+  const collected = booking.amount_collected ?? 0;
+  const fare = booking.fare ?? 0;
+  if (collected >= fare) return 'paid';
+  if (collected > 0) return 'partial';
+  return 'unpaid';
 };
-
-function getPaymentStatus(booking: SupabaseBooking): 'paid' | 'unpaid' | 'pending' {
-  const b = booking as any;
-  if (b.payment_confirmed_at != null) return 'paid';
-  if (b.status === 'completed') return 'unpaid';
-  return 'pending';
-}
 
 export function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('today');
@@ -86,7 +82,7 @@ export function AdminDashboard() {
     const { error } = await supabase
       .from('bookings table')
       .update({
-        amount_collected: parseFloat(paymentAmount),
+        amount_collected: Number(paymentAmount),
         payment_method: paymentMethod,
         payment_confirmed_at: new Date().toISOString(),
       })
@@ -226,16 +222,20 @@ export function AdminDashboard() {
                         <p className="text-sm font-bold">₹{booking.fare ?? 0}</p>
                         <Badge variant="outline" className={bookingStatusStyles[booking.status ?? 'pending']}>{booking.status}</Badge>
                         <div className="mt-1">
-                          <Badge
-                            variant="outline"
-                            className={paymentStatusStyles[getPaymentStatus(booking)]}
-                          >
-                            {getPaymentStatus(booking) === 'paid'
-                              ? 'Paid'
-                              : getPaymentStatus(booking) === 'unpaid'
-                              ? 'Unpaid'
-                              : 'Pending'}
-                          </Badge>
+                          {getPaymentBadge(booking) === 'paid' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/30 font-medium">Paid</span>
+                          )}
+                          {getPaymentBadge(booking) === 'partial' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 font-medium">
+                              Partial ₹{booking.amount_collected?.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                          {getPaymentBadge(booking) === 'pending' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Pending</span>
+                          )}
+                          {getPaymentBadge(booking) === 'unpaid' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30 font-medium">Unpaid</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -278,16 +278,20 @@ export function AdminDashboard() {
                         <p className="text-sm font-bold">₹{booking.fare ?? 0}</p>
                         <p className="text-xs text-muted-foreground">{getDriverName(booking.driver_id) ?? 'Unassigned'}</p>
                         <div className="mt-1">
-                          <Badge
-                            variant="outline"
-                            className={paymentStatusStyles[getPaymentStatus(booking)]}
-                          >
-                            {getPaymentStatus(booking) === 'paid'
-                              ? 'Paid'
-                              : getPaymentStatus(booking) === 'unpaid'
-                              ? 'Unpaid'
-                              : 'Pending'}
-                          </Badge>
+                          {getPaymentBadge(booking) === 'paid' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/30 font-medium">Paid</span>
+                          )}
+                          {getPaymentBadge(booking) === 'partial' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 font-medium">
+                              Partial ₹{booking.amount_collected?.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                          {getPaymentBadge(booking) === 'pending' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Pending</span>
+                          )}
+                          {getPaymentBadge(booking) === 'unpaid' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30 font-medium">Unpaid</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -321,16 +325,22 @@ export function AdminDashboard() {
                           <p className="text-sm font-bold">₹{(booking.fare ?? 0).toLocaleString()}</p>
                           <p className="text-xs text-muted-foreground">{getDriverName(booking.driver_id) ?? 'Unassigned'}</p>
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={paymentStatusStyles[getPaymentStatus(booking)]}
-                        >
-                          {getPaymentStatus(booking) === 'paid'
-                            ? 'Paid'
-                            : getPaymentStatus(booking) === 'unpaid'
-                            ? 'Unpaid'
-                            : 'Pending'}
-                        </Badge>
+                        <div>
+                          {getPaymentBadge(booking) === 'paid' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/30 font-medium">Paid</span>
+                          )}
+                          {getPaymentBadge(booking) === 'partial' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 font-medium">
+                              Partial ₹{booking.amount_collected?.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                          {getPaymentBadge(booking) === 'pending' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Pending</span>
+                          )}
+                          {getPaymentBadge(booking) === 'unpaid' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30 font-medium">Unpaid</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </Card>

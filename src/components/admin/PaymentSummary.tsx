@@ -18,6 +18,10 @@ export function PaymentSummary({ bookings }: PaymentSummaryProps) {
     .reduce((sum, b) => sum + ((b as any).amount_collected ?? 0), 0);
   const upiTotal = totalCollected - cashTotal;
   const pendingCount = todayBookings.filter(b => (b as any).payment_confirmed_at == null).length;
+  const partialCount = todayBookings.filter(b =>
+    b.payment_confirmed_at != null &&
+    (b.amount_collected ?? 0) < (b.fare ?? 0)
+  ).length;
   const progressPct = totalFare > 0 ? Math.round((totalCollected / totalFare) * 100) : 0;
 
   return (
@@ -38,6 +42,12 @@ export function PaymentSummary({ bookings }: PaymentSummaryProps) {
         <span className={`text-xs pl-3 ${pendingCount > 0 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
           {pendingCount} pending
         </span>
+        {partialCount > 0 && (
+          <>
+            <span className="text-border px-1">|</span>
+            <span className="text-xs text-warning font-medium">{partialCount} partial</span>
+          </>
+        )}
       </div>
 
       <div className="w-full bg-muted rounded-full h-1.5" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
