@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './useAuth';
 
 export interface SupabaseDriver {
   id: number;
@@ -102,4 +103,23 @@ export const tripTypeIcons: Record<string, string> = {
 export function getDriverInitials(name: string | null): string {
   if (!name) return '??';
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+}
+
+export function useMyDriverProfile() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['my-driver-profile', user?.id],
+    queryFn: async () => {
+      if (!user) return null;
+      const { data, error } = await supabase
+        .from('Drivers')
+        .select('id, name, vehicle_model, plate_number, status')
+        .eq('auth_user_id', user.id)
+        .single();
+      if (error) return null;
+      return data as SupabaseDriver | null;
+    },
+    enabled: !!user,
+  });
 }

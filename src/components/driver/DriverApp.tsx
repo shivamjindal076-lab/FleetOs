@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
+import { useMyDriverProfile } from '@/hooks/useSupabaseData';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -639,6 +640,7 @@ export function DriverApp() {
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [collections, setCollections] = useState<CashCollection[]>([]);
   const [alarmDemoFired, setAlarmDemoFired] = useState(false);
+  const { data: myProfile } = useMyDriverProfile();
 
   // Simulate alarm firing for the urgent trip after 3 seconds (demo)
   useEffect(() => {
@@ -714,8 +716,12 @@ export function DriverApp() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-xs text-gray-400 font-medium">Good morning</p>
-              <h1 className="text-xl font-black text-white">Naresh Kumar</h1>
-              <p className="text-xs text-gray-500">RJ14 XX 7963 · Innova</p>
+              <h1 className="text-xl font-black text-white">
+                {myProfile?.name ?? 'Driver'}
+              </h1>
+              <p className="text-xs text-gray-500">
+                {myProfile?.plate_number ?? '—'} · {myProfile?.vehicle_model ?? '—'}
+              </p>
             </div>
             <div className="flex items-center gap-3">
               {!isOnline && pendingSyncCount > 0 && (
