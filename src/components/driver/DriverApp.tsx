@@ -704,8 +704,7 @@ export function DriverApp() {
   const [isOnline, setIsOnline] = useState(true);
   const [tripPhase, setTripPhase] = useState<TripPhase>('navigating');
   const [alarmTrip, setAlarmTrip] = useState<ScheduledTrip | null>(null);
-  const [scheduledTrips, setScheduledTrips] = useState<ScheduledTrip[]>(SCHEDULED_TRIPS);
-  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [scheduledTrips, setScheduledTrips] = useState<ScheduledTrip[]>([]);  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [collections, setCollections] = useState<CashCollection[]>([]);
   const [alarmDemoFired, setAlarmDemoFired] = useState(false);
   const [handoverLoading, setHandoverLoading] = useState(false);
