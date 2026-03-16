@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
-import { LogIn, UserPlus, Loader2 } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, Car, Settings } from 'lucide-react';
 
-export function LoginPage() {
+export function LoginPage({ onDriverSelect }: { onDriverSelect?: () => void }) {
   const { signIn, signUp } = useAuth();
+  const [role, setRole] = useState<'driver' | 'admin'>('admin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
@@ -43,6 +44,35 @@ export function LoginPage() {
           </p>
         </div>
 
+        {/* Role selector tiles */}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <button
+            type="button"
+            onClick={() => { setRole('driver'); onDriverSelect?.(); }}
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+              role === 'driver'
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-primary/40'
+            }`}
+          >
+            <Car className="h-6 w-6" />
+            <span className="text-sm font-semibold">Driver</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setRole('admin')}
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+              role === 'admin'
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-primary/40'
+            }`}
+          >
+            <Settings className="h-6 w-6" />
+            <span className="text-sm font-semibold">Admin</span>
+          </button>
+        </div>
+
+        {role === 'admin' && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="email">Email</Label>
@@ -82,17 +112,7 @@ export function LoginPage() {
             {isSignUp ? 'Sign Up' : 'Sign In'}
           </Button>
         </form>
-
-        <p className="text-xs text-center text-muted-foreground mt-4">
-          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <button
-            type="button"
-            className="text-primary font-semibold hover:underline"
-            onClick={() => { setIsSignUp(!isSignUp); setError(null); setMessage(null); }}
-          >
-            {isSignUp ? 'Sign In' : 'Sign Up'}
-          </button>
-        </p>
+        )}
       </Card>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { CustomerHome } from '@/components/customer/CustomerHome';
 import { AdminDashboard } from '@/components/admin/AdminDashboard';
 import { DriverApp } from '@/components/driver/DriverApp';
+import { DriverLoginPage } from '@/components/auth/DriverLoginPage';
 import { PricingEngine } from '@/components/admin/PricingEngine';
 import { LoginPage } from '@/components/auth/LoginPage';
 import { useAuth } from '@/hooks/useAuth';
@@ -31,7 +32,7 @@ const Index = () => {
     else if (isDriver) setView('driver');
   }, [user, isAdmin, isDriver, roleLoading]);
 
-  const protectedViews: AppView[] = ['admin', 'driver', 'pricing'];
+  const protectedViews: AppView[] = ['admin', 'pricing'];
   const adminViews: AppView[] = ['admin', 'pricing'];
   const needsAuth = protectedViews.includes(view);
   const needsAdmin = adminViews.includes(view);
@@ -49,7 +50,7 @@ const Index = () => {
   if (needsAuth && !user) {
     return (
       <div className="relative min-h-screen">
-        <LoginPage />
+        <LoginPage onDriverSelect={() => handleSetView('driver')} />
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
           <Button
             variant="outline"
@@ -59,19 +60,6 @@ const Index = () => {
           >
             ← Back to Customer View
           </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (needsDriver && user && !isDriver && !isAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center px-6">
-          <p className="text-sm text-muted-foreground">Driver access only.</p>
-          <button onClick={() => setView('customer')} className="mt-4 text-xs underline">
-            Back to Customer View
-          </button>
         </div>
       </div>
     );
@@ -106,7 +94,7 @@ const Index = () => {
     <div className="relative min-h-screen">
       {view === 'customer' && <CustomerHome />}
       {view === 'admin' && <AdminDashboard />}
-      {view === 'driver' && <DriverApp />}
+      {view === 'driver' && <DriverLoginPage />}
       {view === 'pricing' && <PricingEngine />}
 
       {/* View switcher (prototype nav) */}
