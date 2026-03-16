@@ -19,7 +19,6 @@ import { supabase } from '@/integrations/supabase/client';
 
 type DriverScreen = 'home' | 'active-trip' | 'earnings' | 'documents' | 'expenses';
 type TripPhase = 'navigating' | 'arrived' | 'started' | 'completed';
-type AlarmState = 'idle' | 'ringing' | 'confirmed' | 'dismissed';
 
 interface ScheduledTrip {
   id: string;
@@ -29,7 +28,7 @@ interface ScheduledTrip {
   drop: string;
   fare: number;
   distance: string;
-  scheduledAt: string; // ISO string
+  scheduledAt: string;
   tripType: 'city' | 'airport' | 'outstation' | 'sightseeing';
   status: 'pending_confirm' | 'confirmed' | 'active';
 }
@@ -50,38 +49,24 @@ interface CashCollection {
   customerName: string;
   amount: number;
   method: 'cash' | 'upi';
+  note?: string;
   timestamp: string;
   isOffline: boolean;
 }
 
-// ─── MOCK DATA ────────────────────────────────────────────────────────────────
+interface MockTrip {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  pickup: string;
+  drop: string;
+  fare: number;
+  distance: string;
+  tripType: string;
+  eta: string;
+}
 
-const SCHEDULED_TRIPS: ScheduledTrip[] = [
-  {
-    id: 'BK-2847',
-    customerName: 'Neeraj Sharma',
-    customerPhone: '+91 98XXXXXXXX',
-    pickup: 'Vaishali Nagar, Jaipur',
-    drop: 'Jaipur International Airport',
-    fare: 4300,
-    distance: '22 km',
-    scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), // 2hrs from now
-    tripType: 'airport',
-    status: 'pending_confirm',
-  },
-  {
-    id: 'BK-2851',
-    customerName: 'Rohit Saxena',
-    customerPhone: '+91 97XXXXXXXX',
-    pickup: 'Vaishali Nagar, Jaipur',
-    drop: 'Delhi (Connaught Place)',
-    fare: 3200,
-    distance: '280 km',
-    scheduledAt: new Date(Date.now() + 18 * 60 * 60 * 1000).toISOString(), // Tomorrow 5:30am
-    tripType: 'outstation',
-    status: 'confirmed',
-  },
-];
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 const TRIP_TYPE_ICONS: Record<string, string> = {
   city: '🚗', airport: '✈️', outstation: '🛣️', sightseeing: '🏛️',
@@ -139,16 +124,13 @@ function TripAlarm({
   onConfirm: () => void;
   onDismiss: () => void;
 }) {
-  const [pulse, setPulse] = useState(true);
   const [countdown, setCountdown] = useState(30);
 
   useEffect(() => {
-    // Vibration (mobile only)
     if ('vibrate' in navigator) {
       navigator.vibrate([500, 200, 500, 200, 500, 200, 500]);
     }
 
-    // Repeating beep via Web Audio API
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     let stopped = false;
 
@@ -189,13 +171,11 @@ function TripAlarm({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      {/* Pulsing ring */}
       <div className="relative flex items-center justify-center">
-        <div className={`absolute h-64 w-64 rounded-full bg-orange-500/20 ${pulse ? 'animate-ping' : ''}`} />
-        <div className={`absolute h-48 w-48 rounded-full bg-orange-500/30 ${pulse ? 'animate-ping' : ''}`} style={{ animationDelay: '0.2s' }} />
+        <div className="absolute h-64 w-64 rounded-full bg-orange-500/20 animate-ping" />
+        <div className="absolute h-48 w-48 rounded-full bg-orange-500/30 animate-ping" style={{ animationDelay: '0.2s' }} />
 
         <div className="relative z-10 bg-gray-900 border-2 border-orange-500 rounded-3xl p-6 mx-6 max-w-sm w-full shadow-2xl">
-          {/* Top alarm indicator */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded-full bg-orange-500 animate-pulse" />
@@ -204,7 +184,6 @@ function TripAlarm({
             <span className="text-gray-400 text-xs font-mono">{countdown}s</span>
           </div>
 
-          {/* Countdown bar */}
           <div className="h-1 w-full bg-gray-700 rounded-full mb-5">
             <div
               className="h-1 bg-orange-500 rounded-full transition-all duration-1000"
@@ -212,7 +191,6 @@ function TripAlarm({
             />
           </div>
 
-          {/* Trip info */}
           <div className="mb-5">
             <div className="text-2xl font-black text-white mb-1">{trip.customerName}</div>
             <div className="text-orange-400 font-bold text-lg mb-3">
@@ -252,7 +230,6 @@ function TripAlarm({
             </div>
           </div>
 
-          {/* Action buttons */}
           <div className="flex gap-3">
             <button
               onClick={onConfirm}
@@ -277,13 +254,7 @@ function TripAlarm({
 
 // ─── MASKED CALL COMPONENT ────────────────────────────────────────────────────
 
-function MaskedCallButton({
-  customerName,
-  tripId,
-}: {
-  customerName: string;
-  tripId: string;
-}) {
+function MaskedCallButton({ customerName, tripId }: { customerName: string; tripId: string }) {
   const [callState, setCallState] = useState<'idle' | 'connecting' | 'active' | 'ended'>('idle');
   const [duration, setDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -307,17 +278,13 @@ function MaskedCallButton({
 
   if (callState === 'idle') {
     return (
-      <button
-        onClick={startCall}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-500/25 active:scale-95 transition-all"
-      >
+      <button onClick={startCall} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-500/25 active:scale-95 transition-all">
         <PhoneCall className="h-4 w-4" />
         Call Customer
         <span className="text-[10px] bg-blue-500/20 px-1.5 py-0.5 rounded-full text-blue-300">Masked</span>
       </button>
     );
   }
-
   if (callState === 'connecting') {
     return (
       <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 text-sm font-semibold">
@@ -326,7 +293,6 @@ function MaskedCallButton({
       </div>
     );
   }
-
   if (callState === 'active') {
     return (
       <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-green-500/15 border border-green-500/30">
@@ -342,7 +308,6 @@ function MaskedCallButton({
       </div>
     );
   }
-
   return (
     <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-500/15 border border-gray-500/30 text-gray-400 text-sm">
       <CheckCircle className="h-4 w-4" />
@@ -354,15 +319,9 @@ function MaskedCallButton({
 // ─── EXPENSE TRACKER ──────────────────────────────────────────────────────────
 
 function ExpenseTracker({
-  isOffline,
-  expenses,
-  collections,
-  onAddExpense,
-  onAddCollection,
-  onDeleteExpense,
-  todayHandover,
-  onHandOver,
-  handoverLoading,
+  isOffline, expenses, collections,
+  onAddExpense, onAddCollection, onDeleteExpense,
+  todayHandover, onHandOver, handoverLoading,
 }: {
   isOffline: boolean;
   expenses: ExpenseEntry[];
@@ -380,8 +339,8 @@ function ExpenseTracker({
   const [expAmount, setExpAmount] = useState('');
   const [expNote, setExpNote] = useState('');
   const [colAmount, setColAmount] = useState('');
+  const [colNote, setColNote] = useState('');
   const [colMethod, setColMethod] = useState<'cash' | 'upi'>('cash');
-  const [colCustomer, setColCustomer] = useState('');
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
   const totalCollected = collections.reduce((s, c) => s + c.amount, 0);
@@ -397,15 +356,14 @@ function ExpenseTracker({
   };
 
   const submitCollection = () => {
-    if (!colAmount || !colCustomer) return;
-    onAddCollection({ tripId: 'manual', customerName: colCustomer, amount: +colAmount, method: colMethod });
-    setColAmount(''); setColCustomer(''); setAddingCollection(false);
+    if (!colAmount) return;
+    onAddCollection({ tripId: 'manual', customerName: '', amount: +colAmount, method: colMethod, note: colNote });
+    setColAmount(''); setColNote(''); setAddingCollection(false);
   };
 
   return (
     <div className="space-y-4 pb-24">
 
-      {/* Offline sync banner */}
       {isOffline && (
         <div className="flex items-center gap-3 p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/30">
           <WifiOff className="h-4 w-4 text-orange-400 flex-shrink-0" />
@@ -414,14 +372,12 @@ function ExpenseTracker({
             <p className="text-xs text-orange-400/70">All entries saved locally — will sync when online</p>
           </div>
           {pendingSync > 0 && (
-            <span className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full font-bold">
-              {pendingSync} pending
-            </span>
+            <span className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full font-bold">{pendingSync} pending</span>
           )}
         </div>
       )}
 
-      {isOffline === false && pendingSync > 0 && (
+      {!isOffline && pendingSync > 0 && (
         <div className="flex items-center gap-3 p-3.5 rounded-xl bg-green-500/10 border border-green-500/30">
           <Wifi className="h-4 w-4 text-green-400 flex-shrink-0" />
           <div className="flex-1">
@@ -472,17 +428,17 @@ function ExpenseTracker({
         {addingCollection && (
           <div className="mb-3 p-3 rounded-xl bg-gray-800 border border-gray-700 space-y-2.5">
             <input
-              className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500"
-              placeholder="Customer name"
-              value={colCustomer}
-              onChange={e => setColCustomer(e.target.value)}
-            />
-            <input
               type="number"
               className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500"
               placeholder="Amount (₹)"
               value={colAmount}
               onChange={e => setColAmount(e.target.value)}
+            />
+            <input
+              className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500"
+              placeholder="Note (optional) — e.g. advance, short by ₹50"
+              value={colNote}
+              onChange={e => setColNote(e.target.value)}
             />
             <div className="flex gap-2">
               {(['cash', 'upi'] as const).map(m => (
@@ -508,7 +464,7 @@ function ExpenseTracker({
           {collections.map(c => (
             <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
               <div>
-                <div className="text-sm font-semibold text-white">{c.customerName}</div>
+                <div className="text-sm font-semibold text-white">{c.note ? c.note : 'Cash collected'}</div>
                 <div className="text-xs text-gray-400">{c.method === 'cash' ? '💵 Cash' : '📱 UPI'} · {new Date(c.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div className="flex items-center gap-2">
@@ -574,11 +530,9 @@ function ExpenseTracker({
           )}
           {expenses.map(e => (
             <div key={e.id} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
-              <div className="flex items-center gap-2">
-                <div>
-                  <div className="text-sm font-semibold text-white">{EXPENSE_LABELS[e.type]}{e.note ? ` · ${e.note}` : ''}</div>
-                  <div className="text-xs text-gray-400">{new Date(e.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
-                </div>
+              <div>
+                <div className="text-sm font-semibold text-white">{EXPENSE_LABELS[e.type]}{e.note ? ` · ${e.note}` : ''}</div>
+                <div className="text-xs text-gray-400">{new Date(e.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div className="flex items-center gap-2">
                 {e.isOffline && <WifiOff className="h-3 w-3 text-orange-400" />}
@@ -610,7 +564,7 @@ function ExpenseTracker({
         )}
         {todayHandover && (
           <p className="text-xs text-green-400 font-medium">
-            Recorded at {new Date(todayHandover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+            ✓ Recorded at {new Date(todayHandover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
           </p>
         )}
       </Card>
@@ -621,9 +575,7 @@ function ExpenseTracker({
 // ─── SCHEDULED TRIP CARD ──────────────────────────────────────────────────────
 
 function ScheduledTripCard({
-  trip,
-  isOffline,
-  onConfirm,
+  trip, isOffline, onConfirm,
 }: {
   trip: ScheduledTrip;
   isOffline: boolean;
@@ -706,15 +658,17 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
   const [isOnline, setIsOnline] = useState(true);
   const [tripPhase, setTripPhase] = useState<TripPhase>('navigating');
   const [alarmTrip, setAlarmTrip] = useState<ScheduledTrip | null>(null);
-  const [scheduledTrips, setScheduledTrips] = useState<ScheduledTrip[]>([]);  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [scheduledTrips, setScheduledTrips] = useState<ScheduledTrip[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [collections, setCollections] = useState<CashCollection[]>([]);
-  const [alarmDemoFired, setAlarmDemoFired] = useState(false);
   const [handoverLoading, setHandoverLoading] = useState(false);
-  const { data: myProfile } = useMyDriverProfile();
+
+  const { data: fetchedProfile } = useMyDriverProfile();
+  const myProfile = driverProfile ?? fetchedProfile;
   const { data: todayHandover, refetch: refetchTodayHandover } = useTodayHandover(myProfile?.id);
   const queryClient = useQueryClient();
 
-  // Realtime subscription — fires alarm when a booking is confirmed for this driver
+  // Realtime subscription
   useEffect(() => {
     if (!myProfile?.id) return;
 
@@ -730,11 +684,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
         },
         (payload) => {
           const booking = payload.new as any;
-
-          if (
-            payload.eventType === 'UPDATE' &&
-            booking.status === 'confirmed'
-          ) {
+          if (payload.eventType === 'UPDATE' && booking.status === 'confirmed') {
             const newTrip: ScheduledTrip = {
               id: `BK-${booking.id}`,
               customerName: booking.customer_name ?? 'Customer',
@@ -747,35 +697,19 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
               tripType: booking.trip_type ?? 'city',
               status: 'pending_confirm',
             };
-
             setScheduledTrips(prev => {
               const exists = prev.find(t => t.id === newTrip.id);
               if (exists) return prev;
               return [newTrip, ...prev];
             });
-
             setAlarmTrip(newTrip);
-            setAlarmDemoFired(false);
           }
         }
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [myProfile?.id]);
-
-  // Simulate alarm firing for the urgent trip after 3 seconds (demo)
-  useEffect(() => {
-    if (!alarmDemoFired) {
-      const t = setTimeout(() => {
-        const urgentTrip = scheduledTrips.find(t => t.status === 'pending_confirm');
-        if (urgentTrip) { setAlarmTrip(urgentTrip); setAlarmDemoFired(true); }
-      }, 3000);
-      return () => clearTimeout(t);
-    }
-  }, [alarmDemoFired]);
 
   const handleConfirmFromAlarm = () => {
     if (!alarmTrip) return;
@@ -788,21 +722,11 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
   };
 
   const addExpense = (e: Omit<ExpenseEntry, 'id' | 'timestamp' | 'isOffline'>) => {
-    setExpenses(prev => [...prev, {
-      ...e,
-      id: `exp_${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      isOffline: !isOnline,
-    }]);
+    setExpenses(prev => [...prev, { ...e, id: `exp_${Date.now()}`, timestamp: new Date().toISOString(), isOffline: !isOnline }]);
   };
 
   const addCollection = (c: Omit<CashCollection, 'id' | 'timestamp' | 'isOffline'>) => {
-    setCollections(prev => [...prev, {
-      ...c,
-      id: `col_${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      isOffline: !isOnline,
-    }]);
+    setCollections(prev => [...prev, { ...c, id: `col_${Date.now()}`, timestamp: new Date().toISOString(), isOffline: !isOnline }]);
   };
 
   const deleteExpense = (id: string) => setExpenses(prev => prev.filter(e => e.id !== id));
@@ -812,17 +736,11 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
     setHandoverLoading(true);
     const { error } = await supabase
       .from('cash_handovers')
-      .insert({
-        driver_id: myProfile.id,
-        amount: Math.round(amount * 100) / 100,
-        handed_over_at: new Date().toISOString(),
-      });
-    if (error) {
-      setHandoverLoading(false);
-      return;
+      .insert({ driver_id: myProfile.id, amount: Math.round(amount * 100) / 100, handed_over_at: new Date().toISOString() });
+    if (!error) {
+      await queryClient.invalidateQueries({ queryKey: ['cash-handovers'] });
+      refetchTodayHandover();
     }
-    await queryClient.invalidateQueries({ queryKey: ['cash-handovers'] });
-    refetchTodayHandover();
     setHandoverLoading(false);
   };
 
@@ -841,10 +759,16 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
     eta: '12 min',
   };
 
+  const greeting = () => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
 
-      {/* ALARM OVERLAY */}
       {alarmTrip && (
         <TripAlarm
           trip={alarmTrip}
@@ -858,7 +782,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
         <div className="max-w-lg mx-auto">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-xs text-gray-400 font-medium">Good morning</p>
+              <p className="text-xs text-gray-400 font-medium">{greeting()}</p>
               <h1 className="text-xl font-black text-white">
                 {myProfile?.name ?? 'Driver'}
               </h1>
@@ -876,16 +800,11 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
               <div className="flex items-center gap-2 bg-gray-800 px-3 py-2 rounded-full border border-gray-700">
                 <div className={`h-2 w-2 rounded-full ${isOnline ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
                 <span className="text-xs font-bold text-gray-200">{isOnline ? 'Online' : 'Offline'}</span>
-                <Switch
-                  checked={isOnline}
-                  onCheckedChange={setIsOnline}
-                  className="scale-75"
-                />
+                <Switch checked={isOnline} onCheckedChange={setIsOnline} className="scale-75" />
               </div>
             </div>
           </div>
 
-          {/* Quick stats */}
           <div className="grid grid-cols-3 gap-2.5">
             <div className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
               <p className="text-lg font-black text-white">₹{earningsData.today.toLocaleString()}</p>
@@ -907,7 +826,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
       <div className="max-w-lg mx-auto px-5 pt-4">
         <div className="flex gap-1.5 mb-5 overflow-x-auto pb-1 scrollbar-hide">
           {([
-            { id: 'home' as DriverScreen, label: 'Home', icon: Car, badge: unconfirmedTrips > 0 ? unconfirmedTrips : 0 },
+            { id: 'home' as DriverScreen, label: 'Home', icon: Car, badge: unconfirmedTrips },
             { id: 'active-trip' as DriverScreen, label: 'Active Trip', icon: Navigation, badge: 0 },
             { id: 'expenses' as DriverScreen, label: 'Expenses', icon: Fuel, badge: pendingSyncCount },
             { id: 'earnings' as DriverScreen, label: 'Earnings', icon: Wallet, badge: 0 },
@@ -917,9 +836,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
               key={t.id}
               onClick={() => setScreen(t.id)}
               className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0 ${
-                screen === t.id
-                  ? 'bg-white text-gray-900 shadow-lg'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                screen === t.id ? 'bg-white text-gray-900 shadow-lg' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
               }`}
             >
               <t.icon className="h-3.5 w-3.5" />
@@ -933,11 +850,9 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
           ))}
         </div>
 
-        {/* ── HOME SCREEN ── */}
+        {/* HOME */}
         {screen === 'home' && (
           <div className="space-y-4 pb-24">
-
-            {/* Offline notice */}
             {!isOnline && (
               <div className="flex items-center gap-3 p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/30">
                 <WifiOff className="h-4 w-4 text-orange-400 flex-shrink-0" />
@@ -956,10 +871,27 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-bold text-white">Trip Alarm Demo</p>
-                  <p className="text-xs text-gray-400">See the loud notification Kashish described</p>
+                  <p className="text-xs text-gray-400">Test the loud notification sound</p>
                 </div>
                 <button
-                  onClick={() => setAlarmTrip(scheduledTrips[0])}
+                  onClick={() => {
+                    if (scheduledTrips.length > 0) {
+                      setAlarmTrip(scheduledTrips[0]);
+                    } else {
+                      setAlarmTrip({
+                        id: 'demo',
+                        customerName: 'Demo Customer',
+                        customerPhone: '',
+                        pickup: 'C-Scheme, Jaipur',
+                        drop: 'Malviya Nagar, Jaipur',
+                        fare: 180,
+                        distance: '6.2 km',
+                        scheduledAt: new Date(Date.now() + 30 * 60000).toISOString(),
+                        tripType: 'city',
+                        status: 'pending_confirm',
+                      });
+                    }
+                  }}
                   className="text-xs px-3 py-2 rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/30 font-bold active:scale-95 transition-all"
                 >
                   Fire Alarm
@@ -967,7 +899,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
               </div>
             </Card>
 
-            {/* Scheduled trips */}
+            {/* Upcoming trips */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-bold text-white flex items-center gap-2">
@@ -980,21 +912,20 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
                   </span>
                 )}
               </div>
-              <div className="space-y-3">
-                {scheduledTrips.map(trip => (
-                  <ScheduledTripCard
-                    key={trip.id}
-                    trip={trip}
-                    isOffline={!isOnline}
-                    onConfirm={handleConfirmTrip}
-                  />
-                ))}
-              </div>
+              {scheduledTrips.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-6">No trips assigned yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {scheduledTrips.map(trip => (
+                    <ScheduledTripCard key={trip.id} trip={trip} isOffline={!isOnline} onConfirm={handleConfirmTrip} />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* ── ACTIVE TRIP SCREEN ── */}
+        {/* ACTIVE TRIP */}
         {screen === 'active-trip' && (
           <div className="space-y-4 pb-24">
             <Card className="p-4 bg-gray-900 border-gray-800">
@@ -1006,13 +937,10 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
                   {tripPhase === 'navigating' ? 'Head to pickup — 4 min' : tripPhase === 'arrived' ? 'At pickup location' : '3.2 km remaining'}
                 </div>
               </div>
-
               <div className="space-y-2 mb-4">
                 <div className="flex items-center gap-2 text-sm"><div className="h-2 w-2 rounded-full bg-green-500" /><span className="text-gray-200">{activeTrip.pickup}</span></div>
                 <div className="flex items-center gap-2 text-sm"><div className="h-2 w-2 rounded-full bg-red-500" /><span className="text-gray-200">{activeTrip.drop}</span></div>
               </div>
-
-              {/* Customer card with masked call */}
               <div className="p-3 bg-gray-800 rounded-xl border border-gray-700 mb-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1029,22 +957,14 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
                 </div>
                 <MaskedCallButton customerName={activeTrip.customerName} tripId={activeTrip.id} />
               </div>
-
-              {/* Trip phase controls */}
               {tripPhase === 'navigating' && (
-                <button onClick={() => setTripPhase('arrived')} className="w-full py-3.5 rounded-xl bg-blue-500 hover:bg-blue-400 active:scale-95 transition-all text-white font-bold">
-                  I've Arrived at Pickup
-                </button>
+                <button onClick={() => setTripPhase('arrived')} className="w-full py-3.5 rounded-xl bg-blue-500 hover:bg-blue-400 active:scale-95 transition-all text-white font-bold">I've Arrived at Pickup</button>
               )}
               {tripPhase === 'arrived' && (
-                <button onClick={() => setTripPhase('started')} className="w-full py-3.5 rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-white font-bold">
-                  Start Trip
-                </button>
+                <button onClick={() => setTripPhase('started')} className="w-full py-3.5 rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-white font-bold">Start Trip</button>
               )}
               {tripPhase === 'started' && (
-                <button onClick={() => setTripPhase('completed')} className="w-full py-3.5 rounded-xl bg-red-500 hover:bg-red-400 active:scale-95 transition-all text-white font-bold">
-                  End Trip · ₹{activeTrip.fare}
-                </button>
+                <button onClick={() => setTripPhase('completed')} className="w-full py-3.5 rounded-xl bg-red-500 hover:bg-red-400 active:scale-95 transition-all text-white font-bold">End Trip · ₹{activeTrip.fare}</button>
               )}
               {tripPhase === 'completed' && (
                 <div className="text-center py-4">
@@ -1052,12 +972,8 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
                   <p className="font-black text-lg text-white">Trip Completed!</p>
                   <p className="text-sm text-gray-400 mb-3">Earned ₹{activeTrip.fare} · Log your expenses</p>
                   <div className="flex gap-2">
-                    <button onClick={() => { setTripPhase('navigating'); setScreen('home'); }} className="flex-1 py-2.5 rounded-xl bg-gray-700 text-gray-200 text-sm font-bold active:scale-95 transition-all">
-                      Back to Home
-                    </button>
-                    <button onClick={() => { setTripPhase('navigating'); setScreen('expenses'); }} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold active:scale-95 transition-all">
-                      Log Expenses
-                    </button>
+                    <button onClick={() => { setTripPhase('navigating'); setScreen('home'); }} className="flex-1 py-2.5 rounded-xl bg-gray-700 text-gray-200 text-sm font-bold active:scale-95 transition-all">Back to Home</button>
+                    <button onClick={() => { setTripPhase('navigating'); setScreen('expenses'); }} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold active:scale-95 transition-all">Log Expenses</button>
                   </div>
                 </div>
               )}
@@ -1065,7 +981,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
           </div>
         )}
 
-        {/* ── EXPENSES SCREEN ── */}
+        {/* EXPENSES */}
         {screen === 'expenses' && (
           <ExpenseTracker
             isOffline={!isOnline}
@@ -1080,7 +996,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
           />
         )}
 
-        {/* ── EARNINGS SCREEN ── */}
+        {/* EARNINGS */}
         {screen === 'earnings' && (
           <div className="space-y-4 pb-24">
             <Card className="p-5 bg-gray-900 border-gray-800">
@@ -1115,7 +1031,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
           </div>
         )}
 
-        {/* ── DOCUMENTS SCREEN ── */}
+        {/* DOCUMENTS */}
         {screen === 'documents' && (
           <div className="space-y-4 pb-24">
             <Card className="p-5 bg-gray-900 border-gray-800">
@@ -1155,17 +1071,4 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
       </div>
     </div>
   );
-}
-
-// Add this type since it's referenced
-interface MockTrip {
-  id: string;
-  customerName: string;
-  customerPhone: string;
-  pickup: string;
-  drop: string;
-  fare: number;
-  distance: string;
-  tripType: string;
-  eta: string;
 }
