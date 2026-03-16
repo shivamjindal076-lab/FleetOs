@@ -119,11 +119,17 @@ export function useMyDriverProfile() {
     queryKey: ['my-driver-profile', user?.id],
     queryFn: async () => {
       if (!user) return null;
+
+      // Normalise to last 10 digits so +91 98765 43210 / 9876543210 both match
+      const phone = user.phone ?? '';
+      const last10 = phone.replace(/\D/g, '').slice(-10);
+      if (!last10) return null;
+
       const { data, error } = await supabase
         .from('Drivers')
         .select('id, name, vehicle_model, plate_number, status')
-        .eq('auth_user_id', user.id)
-        .single();
+        .ilike('phone', `%${last10}`)
+        .maybeSingle();
       if (error) return null;
       return data as SupabaseDriver | null;
     },
