@@ -25,7 +25,7 @@ export function DriverLoginPage() {
     const { data } = await supabase
       .from('"Drivers"')
       .select('*')
-      .ilike('phone', `%${phone}`)
+      .ilike('phone', `%${phone.slice(-5)}`)
       .maybeSingle();
     setFoundDriver(data);
     setScreen('otp');
