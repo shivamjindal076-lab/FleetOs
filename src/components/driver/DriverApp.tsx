@@ -699,7 +699,9 @@ function ScheduledTripCard({
 
 // ─── MAIN DRIVER APP ──────────────────────────────────────────────────────────
 
-export function DriverApp() {
+interface DriverAppProps { driverProfile?: any }
+
+export function DriverApp({ driverProfile }: DriverAppProps) {
   const [screen, setScreen] = useState<DriverScreen>('home');
   const [isOnline, setIsOnline] = useState(true);
   const [tripPhase, setTripPhase] = useState<TripPhase>('navigating');
