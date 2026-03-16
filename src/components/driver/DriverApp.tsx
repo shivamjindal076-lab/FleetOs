@@ -713,6 +713,58 @@ export function DriverApp() {
   const { data: todayHandover, refetch: refetchTodayHandover } = useTodayHandover(myProfile?.id);
   const queryClient = useQueryClient();
 
+  // Realtime subscription — fires alarm when a booking is confirmed for this driver
+  useEffect(() => {
+    if (!myProfile?.id) return;
+
+    const channel = supabase
+      .channel('driver-trips')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bookings table',
+          filter: `driver_id=eq.${myProfile.id}`,
+        },
+        (payload) => {
+          const booking = payload.new as any;
+
+          if (
+            payload.eventType === 'UPDATE' &&
+            booking.status === 'confirmed'
+          ) {
+            const newTrip: ScheduledTrip = {
+              id: `BK-${booking.id}`,
+              customerName: booking.customer_name ?? 'Customer',
+              customerPhone: booking.customer_phone ?? '',
+              pickup: booking.pickup ?? '',
+              drop: booking.drop ?? '',
+              fare: booking.fare ?? 0,
+              distance: '—',
+              scheduledAt: booking.scheduled_at,
+              tripType: booking.trip_type ?? 'city',
+              status: 'pending_confirm',
+            };
+
+            setScheduledTrips(prev => {
+              const exists = prev.find(t => t.id === newTrip.id);
+              if (exists) return prev;
+              return [newTrip, ...prev];
+            });
+
+            setAlarmTrip(newTrip);
+            setAlarmDemoFired(false);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [myProfile?.id]);
+
   // Simulate alarm firing for the urgent trip after 3 seconds (demo)
   useEffect(() => {
     if (!alarmDemoFired) {
