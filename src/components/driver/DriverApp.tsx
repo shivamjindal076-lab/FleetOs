@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Car, Navigation, Phone, Clock, MapPin, Camera, FileText,
-  CheckCircle, XCircle, Power, AlertTriangle, Wallet,
+  CheckCircle, XCircle, X, Power, AlertTriangle, Wallet,
   TrendingUp, Bell, BellOff, Fuel, IndianRupee, WifiOff,
   Wifi, ChevronRight, Plus, Trash2, PhoneCall, PhoneOff,
   Calendar, AlarmClock, Shield
@@ -11,8 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
-import { useMyDriverProfile, useTodayHandover } from '@/hooks/useSupabaseData';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMyDriverProfile, useTodayHandover, SupabaseBooking } from '@/hooks/useSupabaseData';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -68,6 +68,33 @@ interface MockTrip {
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
+const SCHEDULED_TRIPS: ScheduledTrip[] = [
+  {
+    id: 'BK-2847',
+    customerName: 'Neeraj Sharma',
+    customerPhone: '+91 98XXXXXXXX',
+    pickup: 'Vaishali Nagar, Jaipur',
+    drop: 'Jaipur International Airport',
+    fare: 4300,
+    distance: '22 km',
+    scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    tripType: 'airport',
+    status: 'pending_confirm',
+  },
+  {
+    id: 'BK-2851',
+    customerName: 'Rohit Saxena',
+    customerPhone: '+91 97XXXXXXXX',
+    pickup: 'Vaishali Nagar, Jaipur',
+    drop: 'Delhi (Connaught Place)',
+    fare: 3200,
+    distance: '280 km',
+    scheduledAt: new Date(Date.now() + 18 * 60 * 60 * 1000).toISOString(),
+    tripType: 'outstation',
+    status: 'confirmed',
+  },
+];
+
 const TRIP_TYPE_ICONS: Record<string, string> = {
   city: '🚗', airport: '✈️', outstation: '🛣️', sightseeing: '🏛️',
 };
@@ -111,6 +138,26 @@ function getHoursUntil(iso: string) {
   if (hours > 0) return `${hours}h ${mins}m away`;
   if (mins > 0) return `${mins} min away`;
   return 'Now';
+}
+
+function bookingToTrip(b: SupabaseBooking): ScheduledTrip {
+  const statusMap: Record<string, ScheduledTrip['status']> = {
+    pending: 'pending_confirm',
+    confirmed: 'confirmed',
+    'in-progress': 'active',
+  };
+  return {
+    id: `BK-${b.id}`,
+    customerName: b.customer_name ?? 'Customer',
+    customerPhone: b.customer_phone ?? '',
+    pickup: b.pickup ?? '',
+    drop: b.drop ?? '',
+    fare: b.fare ?? 0,
+    distance: '—',
+    scheduledAt: b.scheduled_at ?? new Date().toISOString(),
+    tripType: (b.trip_type as ScheduledTrip['tripType']) ?? 'city',
+    status: statusMap[b.status ?? ''] ?? 'pending_confirm',
+  };
 }
 
 // ─── ALARM COMPONENT ─────────────────────────────────────────────────────────
@@ -651,9 +698,9 @@ function ScheduledTripCard({
 
 // ─── MAIN DRIVER APP ──────────────────────────────────────────────────────────
 
-interface DriverAppProps { driverProfile?: any }
+interface DriverAppProps { driver?: { id: number; name: string; status: string } | null }
 
-export function DriverApp({ driverProfile }: DriverAppProps) {
+export function DriverApp({ driver }: DriverAppProps) {
   const [screen, setScreen] = useState<DriverScreen>('home');
   const [isOnline, setIsOnline] = useState(true);
   const [tripPhase, setTripPhase] = useState<TripPhase>('navigating');
@@ -662,11 +709,63 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [collections, setCollections] = useState<CashCollection[]>([]);
   const [handoverLoading, setHandoverLoading] = useState(false);
+  const [collectBookingId, setCollectBookingId] = useState<number | null>(null);
+  const [collectAmount, setCollectAmount] = useState('');
+  const [collectMethod, setCollectMethod] = useState<'cash' | 'upi'>('cash');
+  const [collectLoading, setCollectLoading] = useState(false);
+  const [bannerTrips, setBannerTrips] = useState<string[]>([]);
+  const [alarmTrips, setAlarmTrips] = useState<string[]>([]);
+
+  const checkReminders = () => {
+    const now = Date.now();
+    const sixHr = 6 * 60 * 60 * 1000;
+    const oneHr = 60 * 60 * 1000;
+
+    SCHEDULED_TRIPS.forEach(trip => {
+      if (trip.status !== 'pending_confirm' && trip.status !== 'confirmed') return;
+      const tripTime = new Date(trip.scheduledAt).getTime();
+      const msUntil = tripTime - now;
+      if (msUntil <= 0) return;
+
+      if (msUntil <= sixHr) {
+        const dismissed = localStorage.getItem('dismissed_6hr_' + trip.id);
+        if (!dismissed) setBannerTrips(prev => prev.includes(trip.id) ? prev : [...prev, trip.id]);
+      }
+      if (msUntil <= oneHr) {
+        const dismissed = localStorage.getItem('dismissed_1hr_' + trip.id);
+        if (!dismissed) setAlarmTrips(prev => prev.includes(trip.id) ? prev : [...prev, trip.id]);
+      }
+    });
+  };
+
+  useEffect(() => {
+    checkReminders();
+    const interval = setInterval(checkReminders, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const { data: fetchedProfile } = useMyDriverProfile();
-  const myProfile = driverProfile ?? fetchedProfile;
+  const myProfile = driver ?? fetchedProfile;
   const { data: todayHandover, refetch: refetchTodayHandover } = useTodayHandover(myProfile?.id);
   const queryClient = useQueryClient();
+
+  const { data: realTrips = [] } = useQuery({
+    queryKey: ['driver-trips', driver?.id],
+    queryFn: async () => {
+      if (!driver?.id) return [];
+      const { data, error } = await supabase
+        .from('bookings table')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .in('status', ['pending', 'confirmed', 'in-progress'])
+        .order('scheduled_at', { ascending: true });
+      if (error) throw error;
+      return data as SupabaseBooking[];
+    },
+    enabled: !!driver?.id,
+  });
+
+  const displayTrips: ScheduledTrip[] = driver ? realTrips.map(bookingToTrip) : SCHEDULED_TRIPS;
 
   // Realtime subscription
   useEffect(() => {
@@ -719,6 +818,57 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
 
   const handleConfirmTrip = (id: string) => {
     setScheduledTrips(trips => trips.map(t => t.id === id ? { ...t, status: 'confirmed' } : t));
+    const bookingId = parseInt(id.replace('BK-', ''));
+    if (!isNaN(bookingId)) handleConfirm(bookingId);
+  };
+
+  const handleConfirm = async (bookingId: number) => {
+    if (!driver?.id) return;
+    await supabase.from('bookings table').update({ status: 'confirmed' }).eq('id', bookingId);
+    await supabase.from('Drivers').update({ status: 'on-trip' }).eq('id', driver.id);
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver.id] });
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    queryClient.invalidateQueries({ queryKey: ['drivers'] });
+  };
+
+  const handleStart = async (bookingId: number) => {
+    if (!driver?.id) return;
+    await supabase.from('bookings table').update({ status: 'in-progress' }).eq('id', bookingId);
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver.id] });
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+  };
+
+  const handleComplete = async (bookingId: number) => {
+    if (!driver?.id) return;
+    await supabase.from('bookings table').update({ status: 'completed' }).eq('id', bookingId);
+    await supabase.from('Drivers').update({ status: 'free' }).eq('id', driver.id);
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver.id] });
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    queryClient.invalidateQueries({ queryKey: ['drivers'] });
+    const completedTrip = realTrips.find(t => t.id === bookingId);
+    setCollectBookingId(bookingId);
+    setCollectAmount(String(completedTrip?.fare ?? ''));
+  };
+
+  const handleLogPayment = async () => {
+    if (!collectBookingId) return;
+    setCollectLoading(true);
+    await supabase.from('bookings table').update({
+      amount_collected: Number(collectAmount),
+      payment_method: collectMethod,
+      payment_confirmed_at: new Date().toISOString(),
+    }).eq('id', collectBookingId);
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver?.id] });
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    addCollection({
+      tripId: `BK-${collectBookingId}`,
+      customerName: realTrips.find(t => t.id === collectBookingId)?.customer_name ?? '',
+      amount: Number(collectAmount),
+      method: collectMethod,
+    });
+    setCollectBookingId(null);
+    setCollectAmount('');
+    setCollectLoading(false);
   };
 
   const addExpense = (e: Omit<ExpenseEntry, 'id' | 'timestamp' | 'isOffline'>) => {
@@ -745,7 +895,7 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
   };
 
   const pendingSyncCount = [...expenses, ...collections].filter(e => e.isOffline).length;
-  const unconfirmedTrips = scheduledTrips.filter(t => t.status === 'pending_confirm').length;
+  const unconfirmedTrips = displayTrips.filter(t => t.status === 'pending_confirm').length;
 
   const activeTrip: MockTrip = {
     id: 'B001',
@@ -767,7 +917,95 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="relative min-h-screen bg-gray-950 text-white">
+
+      {/* 6-hour banner reminders */}
+      {bannerTrips.map(tripId => {
+        const trip = SCHEDULED_TRIPS.find(t => t.id === tripId);
+        if (!trip) return null;
+        return (
+          <div key={tripId} className="mx-4 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold text-blue-700">Trip reminder</p>
+              <p className="text-xs text-blue-600">{trip.customerName} · {new Date(trip.scheduledAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+              <p className="text-xs text-blue-600">{trip.pickup} → {trip.drop}</p>
+            </div>
+            <button
+              onClick={() => { localStorage.setItem('dismissed_6hr_' + tripId, 'true'); setBannerTrips(prev => prev.filter(id => id !== tripId)); }}
+              className="text-blue-400 hover:text-blue-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        );
+      })}
+
+      {/* 1-hour alarm overlays */}
+      {alarmTrips.map(tripId => {
+        const trip = SCHEDULED_TRIPS.find(t => t.id === tripId);
+        if (!trip) return null;
+        return (
+          <div key={tripId} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="bg-card rounded-2xl p-8 mx-6 max-w-sm w-full text-center">
+              <AlarmClock className="h-16 w-16 text-destructive mx-auto mb-4 animate-bounce" />
+              <h2 className="text-xl font-bold text-destructive mb-1">TRIP IN 1 HOUR</h2>
+              <p className="font-semibold mb-1">{trip.customerName}</p>
+              <p className="text-sm text-muted-foreground mb-1">{trip.pickup} → {trip.drop}</p>
+              <p className="text-lg font-bold mb-6">₹{trip.fare.toLocaleString('en-IN')}</p>
+              <Button
+                className="w-full bg-secondary text-secondary-foreground"
+                onClick={() => { localStorage.setItem('dismissed_1hr_' + tripId, 'true'); setAlarmTrips(prev => prev.filter(id => id !== tripId)); }}
+              >
+                Got it, I'm ready
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Cash collection modal — shown after trip completion */}
+      {collectBookingId !== null && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="bg-card rounded-2xl p-6 mx-6 max-w-sm w-full">
+            <h2 className="text-lg font-bold mb-1">Log payment collected</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Fare was ₹{realTrips.find(t => t.id === collectBookingId)?.fare?.toLocaleString('en-IN') ?? collectAmount}
+            </p>
+
+            <input
+              type="number"
+              className="w-full border border-border rounded-xl px-4 py-3 text-base mb-4 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+              value={collectAmount}
+              onChange={e => setCollectAmount(e.target.value)}
+              placeholder="Amount collected"
+            />
+
+            <div className="flex gap-2 mb-5">
+              {(['cash', 'upi'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setCollectMethod(m)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                    collectMethod === m
+                      ? 'bg-secondary text-secondary-foreground border-secondary'
+                      : 'bg-card text-muted-foreground border-border hover:border-muted-foreground/40'
+                  }`}
+                >
+                  {m === 'cash' ? '💵 Cash' : '📱 UPI'}
+                </button>
+              ))}
+            </div>
+
+            <Button
+              className="w-full"
+              disabled={collectLoading || !collectAmount}
+              onClick={handleLogPayment}
+            >
+              {collectLoading ? 'Saving…' : 'Log Payment'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {alarmTrip && (
         <TripAlarm
@@ -912,11 +1150,11 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
                   </span>
                 )}
               </div>
-              {scheduledTrips.length === 0 ? (
+              {displayTrips.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-6">No trips assigned yet</p>
               ) : (
                 <div className="space-y-3">
-                  {scheduledTrips.map(trip => (
+                  {displayTrips.map(trip => (
                     <ScheduledTripCard key={trip.id} trip={trip} isOffline={!isOnline} onConfirm={handleConfirmTrip} />
                   ))}
                 </div>
@@ -961,10 +1199,18 @@ export function DriverApp({ driverProfile }: DriverAppProps) {
                 <button onClick={() => setTripPhase('arrived')} className="w-full py-3.5 rounded-xl bg-blue-500 hover:bg-blue-400 active:scale-95 transition-all text-white font-bold">I've Arrived at Pickup</button>
               )}
               {tripPhase === 'arrived' && (
-                <button onClick={() => setTripPhase('started')} className="w-full py-3.5 rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-white font-bold">Start Trip</button>
+                <button onClick={() => {
+                  setTripPhase('started');
+                  const t = displayTrips.find(t => t.status === 'confirmed');
+                  if (t) { const id = parseInt(t.id.replace('BK-', '')); if (!isNaN(id)) handleStart(id); }
+                }} className="w-full py-3.5 rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-white font-bold">Start Trip</button>
               )}
               {tripPhase === 'started' && (
-                <button onClick={() => setTripPhase('completed')} className="w-full py-3.5 rounded-xl bg-red-500 hover:bg-red-400 active:scale-95 transition-all text-white font-bold">End Trip · ₹{activeTrip.fare}</button>
+                <button onClick={() => {
+                  setTripPhase('completed');
+                  const t = displayTrips.find(t => t.status === 'active');
+                  if (t) { const id = parseInt(t.id.replace('BK-', '')); if (!isNaN(id)) handleComplete(id); }
+                }} className="w-full py-3.5 rounded-xl bg-red-500 hover:bg-red-400 active:scale-95 transition-all text-white font-bold">End Trip · ₹{activeTrip.fare}</button>
               )}
               {tripPhase === 'completed' && (
                 <div className="text-center py-4">

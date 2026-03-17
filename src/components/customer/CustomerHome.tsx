@@ -3,19 +3,21 @@ import { Car, MapPin, Clock, Star, ChevronRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { BookingFlow } from './BookingFlow';
-import { useFixedRoutes } from '@/hooks/useSupabaseData';
+import { useFixedRoutes, useLastBooking, tripTypeIcons } from '@/hooks/useSupabaseData';
 import { useDriversPublic } from '@/hooks/useDriversPublic';
 
 type View = 'home' | 'booking';
 
 export function CustomerHome() {
   const [view, setView] = useState<View>('home');
+  const [repeatData, setRepeatData] = useState<typeof lastBooking>(null);
   const { data: routes = [], isLoading: routesLoading } = useFixedRoutes();
   const { data: drivers = [] } = useDriversPublic();
+  const { data: lastBooking } = useLastBooking();
 
   const freeCount = drivers.filter(d => d.status === 'free').length;
 
-  if (view === 'booking') return <BookingFlow onBack={() => setView('home')} />;
+  if (view === 'booking') return <BookingFlow onBack={() => { setRepeatData(null); setView('home'); }} initialData={repeatData} />;
 
   return (
     <div className="min-h-screen bg-background">
@@ -30,6 +32,16 @@ export function CustomerHome() {
           <p className="text-primary-foreground/70 text-sm">Jaipur's most reliable rides</p>
 
           <div className="mt-6 space-y-3">
+            {lastBooking && (
+              <button onClick={() => { setRepeatData(lastBooking); setView('booking'); }} className="w-full text-left bg-primary-foreground/10 rounded-xl p-4 flex items-center justify-between gap-3 mb-3 border border-primary-foreground/20">
+                <div>
+                  <p className="text-xs text-primary-foreground/60 mb-1">Book again</p>
+                  <p className="text-sm font-semibold text-primary-foreground">{tripTypeIcons[lastBooking.trip_type ?? 'city']} {lastBooking.pickup} → {lastBooking.drop}</p>
+                  <p className="text-xs text-primary-foreground/50">₹{lastBooking.fare?.toLocaleString('en-IN')} · {new Date(lastBooking.scheduled_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                </div>
+                <ChevronRight className="h-5 w-5 text-primary-foreground/40 flex-shrink-0" />
+              </button>
+            )}
             <Button
               onClick={() => setView('booking')}
               className="w-full h-14 bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-xl text-base font-semibold justify-between px-5"

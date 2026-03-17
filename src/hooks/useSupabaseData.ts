@@ -189,3 +189,19 @@ export function useTodayCashHandovers() {
     },
   });
 }
+
+export function useLastBooking() {
+  return useQuery({
+    queryKey: ['last-booking'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('bookings table')
+        .select('id, pickup, drop, trip_type, fare, scheduled_at, customer_name')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data) return null;
+      return data as Pick<SupabaseBooking, 'id' | 'pickup' | 'drop' | 'trip_type' | 'fare' | 'scheduled_at' | 'customer_name'>;
+    },
+  });
+}

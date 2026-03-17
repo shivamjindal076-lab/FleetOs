@@ -23,7 +23,7 @@ export function DriverLoginPage() {
     setLoading(true);
     setError(null);
     const { data } = await supabase
-      .from('"Drivers"')
+      .from('Drivers')
       .select('*')
       .ilike('phone', `%${phone.slice(-5)}`)
       .maybeSingle();
@@ -51,7 +51,7 @@ export function DriverLoginPage() {
   const handleRegister = async () => {
     setLoading(true);
     setError(null);
-    await supabase.from('"Drivers"').insert({
+    await supabase.from('Drivers').insert({
       name: driverName,
       phone: '+91' + phone,
       status: 'pending_approval',
@@ -61,7 +61,7 @@ export function DriverLoginPage() {
   };
 
   if (screen === 'app') {
-    return <DriverApp driverProfile={foundDriver} />;
+    return <DriverApp driver={foundDriver} />;
   }
 
   if (screen === 'holding') {

@@ -6,6 +6,7 @@ import { BookingSummary } from './BookingSummary';
 
 interface BookingFlowProps {
   onBack: () => void;
+  initialData?: { pickup?: string | null; drop?: string | null; trip_type?: string | null; fare?: number | null } | null;
 }
 
 type Step = 'type' | 'form' | 'summary';
@@ -16,9 +17,28 @@ const stepLabels: Record<Step, string> = {
   summary: 'Review & Confirm',
 };
 
-export function BookingFlow({ onBack }: BookingFlowProps) {
-  const [step, setStep] = useState<Step>('type');
-  const [formData, setFormData] = useState<BookingFormData>(defaultFormData);
+// Maps DB trip_type values to BookingForm TripType
+const dbTypeToTripType: Record<string, TripType> = {
+  city: 'local',
+  airport: 'airport',
+  outstation: 'intercity',
+  sightseeing: 'city_tour',
+};
+
+function buildInitialFormData(initialData: BookingFlowProps['initialData']): BookingFormData {
+  if (!initialData) return defaultFormData;
+  const tripType: TripType = dbTypeToTripType[initialData.trip_type ?? ''] ?? 'local';
+  return {
+    ...defaultFormData,
+    tripType,
+    pickup: initialData.pickup ?? '',
+    drop: initialData.drop ?? '',
+  };
+}
+
+export function BookingFlow({ onBack, initialData }: BookingFlowProps) {
+  const [step, setStep] = useState<Step>(initialData ? 'form' : 'type');
+  const [formData, setFormData] = useState<BookingFormData>(() => buildInitialFormData(initialData));
 
   const handleTypeSelect = (type: TripType) => {
     setFormData({ ...defaultFormData, tripType: type });

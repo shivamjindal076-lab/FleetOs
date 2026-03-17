@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useDrivers, useBookings, useTodayCashHandovers, tripTypeIcons, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useDrivers, useBookings, useTodayCashHandovers, tripTypeIcons, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
 import { DispatchEngine } from './DispatchEngine';
 import { PaymentSummary } from './PaymentSummary';
 import { NewBookingSheet } from './NewBookingSheet';
@@ -48,6 +49,7 @@ export function AdminDashboard() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [vehicleSelections, setVehicleSelections] = useState<Record<number, string>>({});
   const [approvalLoading, setApprovalLoading] = useState<Record<number, boolean>>({});
+  const [detailBooking, setDetailBooking] = useState<SupabaseBooking | null>(null);
   const queryClient = useQueryClient();
 
   const { data: drivers = [], isLoading: driversLoading } = useDrivers();
@@ -245,47 +247,49 @@ export function AdminDashboard() {
               )}
               <div className="space-y-2">
                 {pendingBookings.map((booking) => (
-                  <Card key={booking.id} className="p-4 shadow-card rounded-xl">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-lg">{tripTypeIcons[booking.trip_type ?? 'city']}</span>
-                        <div>
-                          <p className="text-sm font-semibold">{booking.customer_name ?? 'Unknown'}</p>
-                          <p className="text-xs text-muted-foreground">{booking.pickup ?? '?'} → {booking.drop ?? '?'}</p>
+                  <div key={booking.id} onClick={() => setDetailBooking(booking)} className="cursor-pointer">
+                    <Card className="p-4 shadow-card rounded-xl">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg">{tripTypeIcons[booking.trip_type ?? 'city']}</span>
+                          <div>
+                            <p className="text-sm font-semibold">{booking.customer_name ?? 'Unknown'}</p>
+                            <p className="text-xs text-muted-foreground">{booking.pickup ?? '?'} → {booking.drop ?? '?'}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold">₹{booking.fare ?? 0}</p>
+                          <Badge variant="outline" className={bookingStatusStyles[booking.status ?? 'pending']}>{booking.status}</Badge>
+                          <div className="mt-1">
+                            {getPaymentBadge(booking) === 'paid' && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/30 font-medium">Paid</span>
+                            )}
+                            {getPaymentBadge(booking) === 'partial' && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 font-medium">
+                                Partial ₹{booking.amount_collected?.toLocaleString('en-IN')}
+                              </span>
+                            )}
+                            {getPaymentBadge(booking) === 'pending' && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Pending</span>
+                            )}
+                            {getPaymentBadge(booking) === 'unpaid' && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30 font-medium">Unpaid</span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold">₹{booking.fare ?? 0}</p>
-                        <Badge variant="outline" className={bookingStatusStyles[booking.status ?? 'pending']}>{booking.status}</Badge>
-                        <div className="mt-1">
-                          {getPaymentBadge(booking) === 'paid' && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/30 font-medium">Paid</span>
-                          )}
-                          {getPaymentBadge(booking) === 'partial' && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 font-medium">
-                              Partial ₹{booking.amount_collected?.toLocaleString('en-IN')}
-                            </span>
-                          )}
-                          {getPaymentBadge(booking) === 'pending' && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Pending</span>
-                          )}
-                          {getPaymentBadge(booking) === 'unpaid' && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/30 font-medium">Unpaid</span>
-                          )}
+                      <div className="flex items-center justify-between mt-3">
+                        <div className="flex gap-2">
+                          <Button size="sm" aria-label="Assign Driver" className="bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-lg text-xs" onClick={(e) => { e.stopPropagation(); setDispatchBooking(booking); }}>
+                            <Car className="h-3 w-3 mr-1" />Assign
+                          </Button>
+                          <Button size="sm" variant="outline" className="rounded-lg text-xs" onClick={(e) => e.stopPropagation()}>
+                            <Phone className="h-3 w-3 mr-1" />Call
+                          </Button>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <div className="flex gap-2">
-                        <Button size="sm" aria-label="Assign Driver" className="bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-lg text-xs" onClick={() => setDispatchBooking(booking)}>
-                          <Car className="h-3 w-3 mr-1" />Assign
-                        </Button>
-                        <Button size="sm" variant="outline" className="rounded-lg text-xs">
-                          <Phone className="h-3 w-3 mr-1" />Call
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
+                    </Card>
+                  </div>
                 ))}
               </div>
             </div>
@@ -300,7 +304,7 @@ export function AdminDashboard() {
                   <Card
                     key={booking.id}
                     className="p-4 shadow-card rounded-xl cursor-pointer"
-                    onClick={() => openPaymentSheet(booking)}
+                    onClick={() => setDetailBooking(booking)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -346,7 +350,7 @@ export function AdminDashboard() {
                   <Card
                     key={booking.id}
                     className="p-4 shadow-card rounded-xl cursor-pointer"
-                    onClick={() => openPaymentSheet(booking)}
+                    onClick={() => setDetailBooking(booking)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -487,6 +491,55 @@ export function AdminDashboard() {
           setDispatchBooking(null);
         }}
       />
+
+      {/* Booking Detail Sheet */}
+      <Sheet open={!!detailBooking} onOpenChange={() => setDetailBooking(null)}>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+          <SheetHeader className="mb-4">
+            <SheetTitle>
+              {tripTypeIcons[detailBooking?.trip_type ?? 'city']} {detailBooking?.pickup} → {detailBooking?.drop}
+            </SheetTitle>
+          </SheetHeader>
+          {detailBooking && (() => {
+            const rows: { label: string; value: string | number | null | undefined }[] = [
+              { label: 'Booking ID', value: detailBooking.id },
+              { label: 'Customer', value: detailBooking.customer_name },
+              { label: 'Phone', value: detailBooking.customer_phone },
+              { label: 'Trip type', value: tripTypeLabels[detailBooking.trip_type ?? ''] },
+              { label: 'Pickup', value: detailBooking.pickup },
+              { label: 'Drop', value: detailBooking.drop },
+              { label: 'Scheduled', value: detailBooking.scheduled_at ? new Date(detailBooking.scheduled_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : null },
+              { label: 'Fare', value: detailBooking.fare != null ? `₹${detailBooking.fare.toLocaleString('en-IN')}` : null },
+              { label: 'Driver', value: getDriverName(detailBooking.driver_id) ?? 'Unassigned' },
+              { label: 'Payment', value: detailBooking.payment_method },
+              { label: 'Amount collected', value: detailBooking.amount_collected != null ? `₹${detailBooking.amount_collected}` : null },
+              { label: 'Payment confirmed', value: detailBooking.payment_confirmed_at ? new Date(detailBooking.payment_confirmed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true }) : null },
+              { label: 'Stops', value: detailBooking.stops },
+              { label: 'Days', value: detailBooking.number_of_days },
+              { label: 'Return date', value: detailBooking.return_date },
+              { label: 'Driver stay', value: detailBooking.driver_stay_required ? 'Required' : null },
+            ];
+            return (
+              <div className="space-y-3">
+                {rows.filter(r => r.value !== null && r.value !== undefined && r.value !== '').map(row => (
+                  <div key={row.label} className="flex items-start justify-between gap-4 py-1.5 border-b border-border last:border-0">
+                    <span className="text-xs text-muted-foreground shrink-0">{row.label}</span>
+                    <span className="text-sm font-medium text-right">{String(row.value)}</span>
+                  </div>
+                ))}
+                <div className="pt-3 flex gap-2">
+                  <Button size="sm" className="flex-1 bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-lg text-xs" onClick={() => { setDispatchBooking(detailBooking); setDetailBooking(null); }}>
+                    <Car className="h-3 w-3 mr-1" />Assign Driver
+                  </Button>
+                  <Button size="sm" variant="outline" className="flex-1 rounded-lg text-xs" onClick={() => { openPaymentSheet(detailBooking); setDetailBooking(null); }}>
+                    Log Payment
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={!!paymentBooking} onOpenChange={() => setPaymentBooking(null)}>
         <DialogContent className="max-w-sm">
