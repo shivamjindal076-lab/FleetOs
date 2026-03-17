@@ -51,7 +51,22 @@ export function AdminDashboard() {
   const [vehicleSelections, setVehicleSelections] = useState<Record<number, string>>({});
   const [approvalLoading, setApprovalLoading] = useState<Record<number, boolean>>({});
   const [detailBooking, setDetailBooking] = useState<SupabaseBooking | null>(null);
+  const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
   const queryClient = useQueryClient();
+
+  const openDriverInMaps = (driver: any) => {
+    if (!driver.location_lat || !driver.location_lng) return;
+    const url = `https://www.google.com/maps?q=${driver.location_lat},${driver.location_lng}&label=${encodeURIComponent(driver.name)}`;
+    window.open(url, '_blank');
+  };
+
+  const getLastUpdated = (driver: any) => {
+    if (!(driver as any).updated_at) return 'Unknown';
+    const mins = Math.round((Date.now() - new Date((driver as any).updated_at).getTime()) / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins} min ago`;
+    return `${Math.round(mins / 60)} hr ago`;
+  };
 
   const { data: drivers = [], isLoading: driversLoading } = useDrivers();
   const { data: bookings = [], isLoading: bookingsLoading } = useBookings();
@@ -431,8 +446,13 @@ export function AdminDashboard() {
             {drivers.map((driver) => {
               const handover = todayHandovers.find(h => h.driver_id === driver.id);
               const driverCashToday = getDriverCashToday(driver.id);
+              const isExpanded = expandedDriverId === driver.id;
               return (
-                <Card key={driver.id} className="p-4 shadow-card rounded-xl">
+                <Card
+                  key={driver.id}
+                  className="p-4 shadow-card rounded-xl cursor-pointer"
+                  onClick={() => setExpandedDriverId(isExpanded ? null : driver.id)}
+                >
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <div className="h-11 w-11 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
@@ -458,11 +478,71 @@ export function AdminDashboard() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button size="icon" variant="outline" className="h-9 w-9 rounded-lg">
+                      <Button size="icon" variant="outline" className="h-9 w-9 rounded-lg" onClick={(e) => e.stopPropagation()}>
                         <Phone className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
+
+                  {/* Location button row */}
+                  <div className="flex items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                    {driver.location_lat && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openDriverInMaps(driver); }}
+                        className="flex items-center gap-1 text-xs text-blue-600 border border-blue-200 rounded-md px-2 py-1 hover:bg-blue-50"
+                      >
+                        <MapPin className="w-3 h-3" />
+                        {driver.status === 'on-trip' ? 'Live map' : 'Last location'}
+                      </button>
+                    )}
+                    {!driver.location_lat && (
+                      <span className="text-xs text-gray-400 italic">No location data</span>
+                    )}
+                  </div>
+
+                  {/* Expandable detail panel */}
+                  {isExpanded && (
+                    <div className="mt-2 pt-2 border-t border-gray-100 space-y-1" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-between text-xs text-gray-500">
+                        <span>Last updated</span>
+                        <span className="font-medium text-gray-800">{getLastUpdated(driver)}</span>
+                      </div>
+                      {driver.location_lat && (
+                        <>
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>Coordinates</span>
+                            <span className="font-medium text-gray-800 font-mono">
+                              {driver.location_lat.toFixed(4)}, {driver.location_lng?.toFixed(4)}
+                            </span>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openDriverInMaps(driver); }}
+                              className="flex-1 text-xs py-1.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-medium"
+                            >
+                              Open in Google Maps
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard?.writeText(
+                                  `${driver.location_lat}, ${driver.location_lng}`
+                                );
+                              }}
+                              className="flex-1 text-xs py-1.5 rounded-md border border-gray-200 text-gray-600"
+                            >
+                              Copy coords
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {!driver.location_lat && (
+                        <p className="text-xs text-gray-400 italic">
+                          Driver has not shared location yet. Location appears once they open the app and start a trip.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </Card>
               );
             })}
