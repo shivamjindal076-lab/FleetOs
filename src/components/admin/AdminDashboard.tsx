@@ -106,7 +106,7 @@ export function AdminDashboard() {
   const handleApprove = async (driver: SupabaseDriver) => {
     const model = vehicleSelections[driver.id] || 'Maruti Swift';
     setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
-    const { error } = await supabase.from('"Drivers"').update({ status: 'free', vehicle_model: model }).eq('id', driver.id);
+    const { error } = await supabase.from('Drivers').update({ status: 'free', vehicle_model: model }).eq('id', driver.id);
     if (error) {
       toast.error(error.message);
     } else {
@@ -118,7 +118,7 @@ export function AdminDashboard() {
 
   const handleReject = async (driver: SupabaseDriver) => {
     setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
-    const { error } = await supabase.from('"Drivers"').delete().eq('id', driver.id);
+    const { error } = await supabase.from('Drivers').delete().eq('id', driver.id);
     if (error) {
       toast.error(error.message);
     } else {
