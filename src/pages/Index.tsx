@@ -121,6 +121,7 @@ const Index = () => {
           ))}
           {!user && (
             <button
+            data-testid="open-login"
               onClick={() => setView('admin')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold text-primary-foreground/60 hover:text-primary-foreground transition"
             >

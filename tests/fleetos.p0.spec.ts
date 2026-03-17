@@ -24,15 +24,19 @@ const ADMIN_PASS  = process.env.ADMIN_PASSWORD || 'your_password_here';
 async function loginAsAdmin(page: Page) {
   await page.goto(BASE_URL);
 
-  // Switch to Admin view — click the Admin tab in the bottom nav
-  await page.getByRole('button', { name: /admin/i }).first().click();
+  // App loads on Customer view — click any protected nav item to trigger login
+  // Use the Login button or navigate directly to trigger the auth gate
+  await page.goto(`${BASE_URL}?view=admin`);
+  
+  // Wait for login form to appear
+  await expect(page.getByLabel(/email/i)).toBeVisible({ timeout: 10000 });
 
   // Fill in credentials
   await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
   await page.getByLabel(/password/i).fill(ADMIN_PASS);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
 
-  // Wait for dashboard to load (stats row visible)
+  // Wait for dashboard to load
   await expect(page.getByText(/free/i).first()).toBeVisible({ timeout: 10000 });
 }
 

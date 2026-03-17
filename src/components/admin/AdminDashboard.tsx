@@ -107,6 +107,7 @@ export function AdminDashboard() {
     const model = vehicleSelections[driver.id] || 'Maruti Swift';
     setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
     const { error } = await supabase.from('Drivers').update({ status: 'free', vehicle_model: model }).eq('id', driver.id);
+    queryClient.invalidateQueries({ queryKey: ['drivers'] });
     if (error) {
       toast.error(error.message);
     } else {
