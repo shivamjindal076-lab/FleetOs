@@ -10,12 +10,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { useDrivers, useBookings, useTodayCashHandovers, tripTypeIcons, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
 import { DispatchEngine } from './DispatchEngine';
 import { PaymentSummary } from './PaymentSummary';
+import { CollectionsHistory } from './CollectionsHistory';
 import { NewBookingSheet } from './NewBookingSheet';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-type Tab = 'today' | 'fleet';
+type Tab = 'today' | 'fleet' | 'collections';
 
 const statusColors: Record<string, string> = {
   free: 'bg-success',
@@ -181,6 +182,7 @@ export function AdminDashboard() {
           {[
             { id: 'today' as Tab, label: "Today's Board", icon: Calendar },
             { id: 'fleet' as Tab, label: 'Fleet Health', icon: Car },
+            { id: 'collections' as Tab, label: 'Collections', icon: Activity },
           ].map((t) => (
             <button
               key={t.id}
@@ -464,6 +466,12 @@ export function AdminDashboard() {
                 </Card>
               );
             })}
+          </div>
+        )}
+
+        {tab === 'collections' && (
+          <div className="pb-8">
+            <CollectionsHistory />
           </div>
         )}
       </div>

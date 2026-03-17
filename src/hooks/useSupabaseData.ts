@@ -190,6 +190,43 @@ export function useTodayCashHandovers() {
   });
 }
 
+export function useCollectionsByDate(date: string) {
+  return useQuery({
+    queryKey: ['collections', date],
+    queryFn: async () => {
+      const start = new Date(date); start.setHours(0, 0, 0, 0);
+      const end = new Date(date); end.setHours(23, 59, 59, 999);
+      const { data, error } = await supabase
+        .from('bookings table')
+        .select('id, customer_name, pickup, drop, fare, payment_method, amount_collected, payment_confirmed_at, scheduled_at, status, driver_id')
+        .gte('scheduled_at', start.toISOString())
+        .lte('scheduled_at', end.toISOString())
+        .order('scheduled_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+}
+
+export function useCollectionsByRange(startDate: string, endDate: string) {
+  return useQuery({
+    queryKey: ['collections-range', startDate, endDate],
+    queryFn: async () => {
+      const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate); end.setHours(23, 59, 59, 999);
+      const { data, error } = await supabase
+        .from('bookings table')
+        .select('id, customer_name, pickup, drop, fare, payment_method, amount_collected, payment_confirmed_at, scheduled_at, status, driver_id')
+        .gte('scheduled_at', start.toISOString())
+        .lte('scheduled_at', end.toISOString())
+        .order('scheduled_at', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!startDate && !!endDate,
+  });
+}
+
 export function useLastBooking() {
   return useQuery({
     queryKey: ['last-booking'],
