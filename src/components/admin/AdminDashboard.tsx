@@ -583,6 +583,7 @@ export function AdminDashboard() {
                   placeholder="Amount"
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="text-foreground"
                 />
               </div>
 
