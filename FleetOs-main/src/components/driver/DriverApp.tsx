@@ -15,8 +15,6 @@ import { useMyDriverProfile, useTodayHandover, SupabaseBooking } from '@/hooks/u
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-
-
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
 type DriverScreen = 'home' | 'active-trip' | 'earnings' | 'documents' | 'expenses';
@@ -702,7 +700,6 @@ function ScheduledTripCard({
 
 interface DriverAppProps { driver?: { id: number; name: string; status: string } | null }
 
-
 export function DriverApp({ driver }: DriverAppProps) {
   const [screen, setScreen] = useState<DriverScreen>('home');
   const [isOnline, setIsOnline] = useState(true);
@@ -718,36 +715,6 @@ export function DriverApp({ driver }: DriverAppProps) {
   const [collectLoading, setCollectLoading] = useState(false);
   const [bannerTrips, setBannerTrips] = useState<string[]>([]);
   const [alarmTrips, setAlarmTrips] = useState<string[]>([]);
-
-  // Map initialization logic (must be at top level, not inside JSX)
-  useEffect(() => {
-  const initMap = () => {
-    if (!window.mappls) return;
-
-    const mapContainer = document.getElementById("map");
-    if (!mapContainer) return;
-
-    if (mapContainer.innerHTML !== "") return;
-
-    const map = new window.mappls.Map("map", {
-      center: [75.7873, 26.9124],
-      zoom: 12
-    });
-
-    new window.mappls.Marker({
-      map,
-      position: [75.7873, 26.9124]
-    });
-
-    new window.mappls.Marker({
-      map,
-      position: [75.85, 26.85]
-    });
-  };
-
-  const timer = setTimeout(initMap, 500);
-  return () => clearTimeout(timer);
-}, [screen]);
 
   const checkReminders = () => {
     const now = Date.now();
@@ -930,17 +897,17 @@ export function DriverApp({ driver }: DriverAppProps) {
   const pendingSyncCount = [...expenses, ...collections].filter(e => e.isOffline).length;
   const unconfirmedTrips = displayTrips.filter(t => t.status === 'pending_confirm').length;
 
-  const [activeTrip, setActiveTrip] = useState<MockTrip>({
-  id: 'demo',
-  customerName: 'Priya Gupta',
-  customerPhone: '',
-  pickup: 'C-Scheme, Jaipur',
-  drop: 'Malviya Nagar, Jaipur',
-  fare: 180,
-  distance: '6.2 km',
-  tripType: 'city',
-  eta: '12 min',
-});
+  const activeTrip: MockTrip = {
+    id: 'B001',
+    customerName: 'Priya Gupta',
+    customerPhone: '+91 99876 54321',
+    pickup: 'C-Scheme, Jaipur',
+    drop: 'Malviya Nagar, Jaipur',
+    fare: 180,
+    distance: '6.2 km',
+    tripType: 'city',
+    eta: '12 min',
+  };
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -1201,37 +1168,32 @@ export function DriverApp({ driver }: DriverAppProps) {
           <div className="space-y-4 pb-24">
             <Card className="p-4 bg-gray-900 border-gray-800">
               <h3 className="text-sm font-bold mb-3 text-white">Navigation</h3>
-              <div className="h-44 bg-gray-800 rounded-xl mb-3 relative border border-gray-700">
-                <div id="map" className="h-full w-full rounded-xl" />
-
-                <div className="absolute top-3 left-3 bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-700 text-xs font-bold text-white z-10">
+              <div className="h-44 bg-gray-800 rounded-xl flex items-center justify-center mb-3 relative border border-gray-700">
+                <p className="text-xs text-gray-500">Live map · Jaipur</p>
+                <div className="absolute top-3 left-3 bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-700 text-xs font-bold text-white">
                   <Navigation className="h-3 w-3 inline mr-1 text-blue-400" />
-                  {tripPhase === 'navigating'
-                    ? 'Head to pickup — 4 min'
-                    : tripPhase === 'arrived'
-                    ? 'At pickup location'
-                    : '3.2 km remaining'}
+                  {tripPhase === 'navigating' ? 'Head to pickup — 4 min' : tripPhase === 'arrived' ? 'At pickup location' : '3.2 km remaining'}
                 </div>
               </div>
               <div className="space-y-2 mb-4">
-                <div className="flex items-center gap-2 text-sm"><div className="h-2 w-2 rounded-full bg-green-500" /><span className="text-gray-200">{activeTrip?.pickup}</span></div>
-                <div className="flex items-center gap-2 text-sm"><div className="h-2 w-2 rounded-full bg-red-500" /><span className="text-gray-200">{activeTrip?.drop}</span></div>
+                <div className="flex items-center gap-2 text-sm"><div className="h-2 w-2 rounded-full bg-green-500" /><span className="text-gray-200">{activeTrip.pickup}</span></div>
+                <div className="flex items-center gap-2 text-sm"><div className="h-2 w-2 rounded-full bg-red-500" /><span className="text-gray-200">{activeTrip.drop}</span></div>
               </div>
               <div className="p-3 bg-gray-800 rounded-xl border border-gray-700 mb-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-bold text-white">{activeTrip?.customerName}</p>
+                    <p className="text-sm font-bold text-white">{activeTrip.customerName}</p>
                     <p className="text-xs text-gray-400 flex items-center gap-1">
                       <Shield className="h-3 w-3 text-blue-400" />
                       Number protected
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-black text-white">₹{activeTrip?.fare}</p>
+                    <p className="text-lg font-black text-white">₹{activeTrip.fare}</p>
                     <p className="text-xs text-gray-400">{activeTrip.distance}</p>
                   </div>
                 </div>
-                <MaskedCallButton customerName={activeTrip?.customerName} tripId={activeTrip.id} />
+                <MaskedCallButton customerName={activeTrip.customerName} tripId={activeTrip.id} />
               </div>
               {tripPhase === 'navigating' && (
                 <button onClick={() => setTripPhase('arrived')} className="w-full py-3.5 rounded-xl bg-blue-500 hover:bg-blue-400 active:scale-95 transition-all text-white font-bold">I've Arrived at Pickup</button>
@@ -1248,13 +1210,13 @@ export function DriverApp({ driver }: DriverAppProps) {
                   setTripPhase('completed');
                   const t = displayTrips.find(t => t.status === 'active');
                   if (t) { const id = parseInt(t.id.replace('BK-', '')); if (!isNaN(id)) handleComplete(id); }
-                }} className="w-full py-3.5 rounded-xl bg-red-500 hover:bg-red-400 active:scale-95 transition-all text-white font-bold">End Trip · ₹{activeTrip?.fare}</button>
+                }} className="w-full py-3.5 rounded-xl bg-red-500 hover:bg-red-400 active:scale-95 transition-all text-white font-bold">End Trip · ₹{activeTrip.fare}</button>
               )}
               {tripPhase === 'completed' && (
                 <div className="text-center py-4">
                   <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-2" />
                   <p className="font-black text-lg text-white">Trip Completed!</p>
-                  <p className="text-sm text-gray-400 mb-3">Earned ₹{activeTrip?.fare} · Log your expenses</p>
+                  <p className="text-sm text-gray-400 mb-3">Earned ₹{activeTrip.fare} · Log your expenses</p>
                   <div className="flex gap-2">
                     <button onClick={() => { setTripPhase('navigating'); setScreen('home'); }} className="flex-1 py-2.5 rounded-xl bg-gray-700 text-gray-200 text-sm font-bold active:scale-95 transition-all">Back to Home</button>
                     <button onClick={() => { setTripPhase('navigating'); setScreen('expenses'); }} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold active:scale-95 transition-all">Log Expenses</button>

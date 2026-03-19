@@ -34,42 +34,44 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
   const fare = fareEstimates[data.tripType] ?? 0;
 
   const handleConfirm = async () => {
-  setSubmitting(true);
-  try {
-    const scheduledAt = data.date && data.time
-      ? new Date(`${data.date}T${data.time}`).toISOString()
-      : new Date().toISOString();
+    setSubmitting(true);
+    try {
+      const scheduledAt = data.date && data.time
+        ? new Date(`${data.date}T${data.time}`).toISOString()
+        : new Date().toISOString();
 
-    const { error } = await supabase
-      .from('bookings table')
-      .insert({
-        pickup: data.pickup,
-        drop: data.tripType === 'city_tour' ? (data.stops[0] || null) : data.drop,
-        scheduled_at: scheduledAt,
-        trip_type: data.tripType,
-        fare,
-        payment_method: payment,
-        status: 'pending',
-        stops: data.tripType === 'city_tour' && data.stops.length > 0
-          ? JSON.stringify(data.stops)
-          : null,
-        estimated_hours: data.tripType === 'city_tour' ? data.estimatedHours : null,
-        return_date: data.isRoundTrip && data.returnDate
-          ? new Date(data.returnDate).toISOString()
-          : null,
-        number_of_days: data.tripType === 'multiday' ? data.numberOfDays : null,
-        driver_stay_required: data.tripType === 'multiday' ? data.driverStayRequired : null,
-      });
+      const { data: result, error } = await supabase
+        .from('bookings table')
+        .insert({
+          pickup: data.pickup,
+          drop: data.tripType === 'city_tour' ? (data.stops[0] || null) : data.drop,
+          scheduled_at: scheduledAt,
+          trip_type: data.tripType,
+          fare,
+          payment_method: payment,
+          status: 'pending',
+          stops: data.tripType === 'city_tour' && data.stops.length > 0
+            ? JSON.stringify(data.stops)
+            : null,
+          estimated_hours: data.tripType === 'city_tour' ? data.estimatedHours : null,
+          return_date: data.isRoundTrip && data.returnDate
+            ? new Date(data.returnDate).toISOString()
+            : null,
+          number_of_days: data.tripType === 'multiday' ? data.numberOfDays : null,
+          driver_stay_required: data.tripType === 'multiday' ? data.driverStayRequired : null,
+        })
+        .select('id')
+        .single();
 
-    if (error) throw error;
-    setBookingId(Math.floor(Math.random() * 90000) + 10000);
-  } catch (err: any) {
-    console.error('Booking error:', err);
-    toast({ title: 'Booking failed', description: err.message, variant: 'destructive' });
-  } finally {
-    setSubmitting(false);
-  }
-};
+      if (error) throw error;
+      setBookingId(result?.id ?? null);
+    } catch (err: any) {
+      console.error('Booking error:', err);
+      toast({ title: 'Booking failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   // Success state
   if (bookingId !== null) {
