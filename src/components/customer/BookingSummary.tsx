@@ -43,6 +43,8 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
     const { error } = await supabase
       .from('bookings table')
       .insert({
+        passenger_count: data.passengerCount,
+        notes: data.notes || null,
         pickup: data.pickup,
         drop: data.tripType === 'city_tour' ? (data.stops[0] || null) : data.drop,
         scheduled_at: scheduledAt,
@@ -57,8 +59,7 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
         return_date: data.isRoundTrip && data.returnDate
           ? new Date(data.returnDate).toISOString()
           : null,
-        number_of_days: data.tripType === 'multiday' ? data.numberOfDays : null,
-        driver_stay_required: data.tripType === 'multiday' ? data.driverStayRequired : null,
+number_of_days: (data.tripType === 'multiday' || data.tripType === 'intercity') ? data.numberOfDays : null,        driver_stay_required: data.tripType === 'multiday' ? data.driverStayRequired : null,
       });
 
     if (error) throw error;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Car, Clock, ChevronLeft, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,14 @@ export function DriverLoginPage() {
   const [foundDriver, setFoundDriver] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+useEffect(() => {
+    const savedDriver = sessionStorage.getItem('fleetos_driver');
+    const savedScreen = sessionStorage.getItem('fleetos_driver_screen');
+    if (savedDriver && savedScreen) {
+      setFoundDriver(JSON.parse(savedDriver));
+      setScreen(savedScreen as Screen);
+    }
+  }, []);
   const handleSendOtp = async () => {
     setLoading(true);
     setError(null);
@@ -32,7 +39,7 @@ export function DriverLoginPage() {
     setLoading(false);
   };
 
-  const handleVerify = () => {
+   const handleVerify = () => {
     setError(null);
     if (otp.length < 6) {
       setError('Enter 6-digit code');
@@ -40,12 +47,15 @@ export function DriverLoginPage() {
     }
     if (foundDriver) {
       if (foundDriver.status === 'free' || foundDriver.status === 'on-trip') {
+        sessionStorage.setItem('fleetos_driver', JSON.stringify(foundDriver));
+        sessionStorage.setItem('fleetos_driver_screen', 'app');
         setScreen('app');
       } else if (foundDriver.status === 'pending_approval') {
+        sessionStorage.setItem('fleetos_driver', JSON.stringify(foundDriver));
+        sessionStorage.setItem('fleetos_driver_screen', 'holding');
         setScreen('holding');
       }
     }
-    // If !foundDriver, name registration section becomes visible
   };
 
   const handleRegister = async () => {
@@ -56,6 +66,7 @@ export function DriverLoginPage() {
       phone: '+91' + phone,
       status: 'pending_approval',
     });
+    sessionStorage.setItem('fleetos_driver_screen', 'holding');
     setScreen('holding');
     setLoading(false);
   };

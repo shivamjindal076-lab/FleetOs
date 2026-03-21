@@ -38,10 +38,27 @@ function buildInitialFormData(initialData: BookingFlowProps['initialData']): Boo
 
 export function BookingFlow({ onBack, initialData }: BookingFlowProps) {
   const [step, setStep] = useState<Step>(initialData ? 'form' : 'type');
-  const [formData, setFormData] = useState<BookingFormData>(() => buildInitialFormData(initialData));
-
-  const handleTypeSelect = (type: TripType) => {
-    setFormData({ ...defaultFormData, tripType: type });
+const [formData, setFormData] = useState<BookingFormData>(() => {
+    const base = buildInitialFormData(initialData);
+    if (!base.date && !base.time) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 15);
+      base.date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      base.time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    }
+    return base;
+  });
+ const handleTypeSelect = (type: TripType) => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 15);
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const localTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    setFormData({
+      ...defaultFormData,
+      tripType: type,
+      date: localDate,
+      time: localTime,
+    });
     setStep('form');
   };
 

@@ -1,5 +1,10 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+declare global {
+  interface Window {
+    mappls: any;
+  }
+}
+import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,8 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { useDrivers, useBookings, useTodayCashHandovers, tripTypeIcons, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
-import { DispatchEngine } from './DispatchEngine';
+import { useDrivers, useBookings, useTodayCashHandovers, useDriverCollections, tripTypeIcons, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';import { DispatchEngine } from './DispatchEngine';
 import { PaymentSummary } from './PaymentSummary';
 import { CollectionsHistory } from './CollectionsHistory';
 import { NewBookingSheet } from './NewBookingSheet';
@@ -38,7 +42,127 @@ const getPaymentBadge = (booking: SupabaseBooking) => {
   if (collected > 0) return 'partial';
   return 'unpaid';
 };
+function PendingHandovers() {
+  const queryClient = useQueryClient();
+  const { data: drivers = [] } = useDrivers();
+  const [handovers, setHandovers] = useState<any[]>([]);
 
+  useEffect(() => {
+    const fetch = async () => {
+      const client = supabase as any;
+      const res = await client
+        .from('cash_handovers')
+        .select('*')
+        .eq('admin_approved', false)
+        .order('handed_over_at', { ascending: false });
+      setHandovers(res.data || []);
+    };
+    fetch();
+  }, []);
+
+  const getDriverName = (id: number) => drivers.find(d => d.id === id)?.name ?? 'Unknown';
+
+  if (handovers.length === 0) return null;
+
+  return (
+    <Card className="p-5 shadow-card rounded-xl">
+      <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
+        <CheckCircle className="h-4 w-4 text-warning" />
+        Pending Handovers ({handovers.length})
+      </h3>
+      <div className="space-y-2">
+        {handovers.map((h: any) => (
+          <div key={h.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
+            <div>
+              <p className="text-sm font-semibold">{getDriverName(h.driver_id)}</p>
+              <p className="text-xs text-muted-foreground">
+                ₹{h.amount.toLocaleString('en-IN')} · {new Date(h.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="bg-success text-success-foreground hover:bg-success/90 rounded-lg text-xs"
+                onClick={async () => {
+                  await (supabase.from('cash_handovers' as any) as any)
+                    .update({ admin_approved: true })
+                    .eq('id', h.id);
+                  setHandovers(prev => prev.filter(x => x.id !== h.id));
+                  queryClient.invalidateQueries({ queryKey: ['pending-handovers'] });
+                  toast('Handover approved ✓');
+                }}
+              >
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs"
+                onClick={async () => {
+                  await (supabase.from('cash_handovers' as any) as any)
+                    .update({ admin_notes: 'Flagged for review' })
+                    .eq('id', h.id);
+                  setHandovers(prev => prev.filter(x => x.id !== h.id));
+                  toast('Handover flagged');
+                }}
+              >
+                Flag
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+function DriverCollectionPanel({ driverId, period }: { driverId: number; period: 'day' | 'week' | 'month' }) {
+  const { data: bookings = [], isLoading } = useDriverCollections(driverId, period);
+
+  const totalTrips = bookings.length;
+  const collected = bookings.reduce((s: number, b: any) => s + (b.amount_collected ?? 0), 0);
+  const pending = bookings.reduce((s: number, b: any) => s + ((b.fare ?? 0) - (b.amount_collected ?? 0)), 0);
+
+  if (isLoading) return <div className="p-3 text-xs text-muted-foreground">Loading...</div>;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-3" onClick={e => e.stopPropagation()}>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="text-center p-2 rounded-lg bg-muted/50">
+          <p className="text-sm font-bold">{totalTrips}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Trips</p>
+        </div>
+        <div className="text-center p-2 rounded-lg bg-success/10">
+          <p className="text-sm font-bold text-success">₹{collected.toLocaleString('en-IN')}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Collected</p>
+        </div>
+        <div className="text-center p-2 rounded-lg bg-warning/10">
+          <p className="text-sm font-bold text-warning">₹{Math.max(0, pending).toLocaleString('en-IN')}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Pending</p>
+        </div>
+      </div>
+      {bookings.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-2">No trips in this period</p>
+      ) : (
+        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+          {bookings.map((b: any) => (
+            <div key={b.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border last:border-0">
+              <div className="flex-1 min-w-0 mr-2">
+                <p className="font-medium truncate">{b.pickup} → {b.drop}</p>
+                <p className="text-muted-foreground">{b.customer_name} · {new Date(b.scheduled_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <p className="font-bold">₹{(b.fare ?? 0).toLocaleString('en-IN')}</p>
+                <p className={b.payment_confirmed_at ? 'text-success font-medium' : 'text-warning font-medium'}>
+                  {b.payment_confirmed_at ? 'Paid' : 'Unpaid'}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 export function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('today');
   const [dispatchBooking, setDispatchBooking] = useState<SupabaseBooking | null>(null);
@@ -51,8 +175,9 @@ export function AdminDashboard() {
   const [vehicleSelections, setVehicleSelections] = useState<Record<number, string>>({});
   const [approvalLoading, setApprovalLoading] = useState<Record<number, boolean>>({});
   const [detailBooking, setDetailBooking] = useState<SupabaseBooking | null>(null);
-  const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
-  const queryClient = useQueryClient();
+const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
+  const [collectionPeriod, setCollectionPeriod] = useState<'day' | 'week' | 'month'>('day');
+  const [collectionDriverId, setCollectionDriverId] = useState<number | null>(null);  const queryClient = useQueryClient();
 
   const openDriverInMaps = (driver: any) => {
     if (!driver.location_lat || !driver.location_lng) return;
@@ -103,16 +228,18 @@ export function AdminDashboard() {
     setPaymentError(null);
   };
 
-  const handleApprove = async (driver: SupabaseDriver) => {
+  const handleApprove = async (driver: SupabaseDriver, isTemporary = false) => {
     const model = vehicleSelections[driver.id] || 'Maruti Swift';
     setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
-    const { error } = await supabase.from('Drivers').update({ status: 'free', vehicle_model: model }).eq('id', driver.id);
-    queryClient.invalidateQueries({ queryKey: ['drivers'] });
+    const { error } = await supabase
+      .from('Drivers')
+      .update({ status: 'free', vehicle_model: model, is_temporary: isTemporary })
+      .eq('id', driver.id);
     if (error) {
       toast.error(error.message);
     } else {
       queryClient.invalidateQueries({ queryKey: ['drivers'] });
-      toast(`${driver.name ?? 'Driver'} approved ✓`);
+      toast(`${driver.name ?? 'Driver'} approved as ${isTemporary ? 'temporary' : 'regular'} ✓`);
     }
     setApprovalLoading(prev => ({ ...prev, [driver.id]: false }));
   };
@@ -222,35 +349,20 @@ export function AdminDashboard() {
         {!isLoading && tab === 'today' && (
           <div className="space-y-6 pb-8">
             <PaymentSummary bookings={bookings} />
-
+<PendingHandovers />
             {/* Live Map placeholder */}
-            <Card className="p-5 shadow-card rounded-xl">
+              <Card className="p-5 shadow-card rounded-xl">
               <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-secondary" /> Live Map
               </h3>
-              <div className="h-48 bg-muted rounded-lg flex items-center justify-center relative overflow-hidden">
-                <div className="text-sm text-muted-foreground">Map View — Jaipur</div>
-                {drivers.filter(d => d.status !== 'offline').map((driver, i) => (
-                  <div
-                    key={driver.id}
-                    className="absolute"
-                    style={{ top: `${20 + i * 30}%`, left: `${15 + i * 18}%` }}
-                  >
-                    <div className="relative group cursor-pointer">
-                      <div className={`h-3 w-3 rounded-full ${statusColors[driver.status ?? 'offline']} ${driver.status === 'free' ? 'animate-pulse-dot' : ''}`} />
-                      <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-card px-1.5 py-0.5 rounded text-[9px] font-semibold shadow whitespace-nowrap opacity-0 group-hover:opacity-100 transition">
-                        {driver.name?.split(' ')[0] ?? 'Unknown'}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div id="admin-map" className="h-48 bg-muted rounded-lg relative overflow-hidden" />
               <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-success" />Free</span>
                 <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-secondary" />On Trip</span>
                 <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-destructive" />Offline</span>
               </div>
             </Card>
+                  
 
             {/* Instant Queue */}
             <div>
@@ -408,8 +520,20 @@ export function AdminDashboard() {
           </div>
         )}
 
-        {!isLoading && tab === 'fleet' && (
+       {!isLoading && tab === 'fleet' && (
           <div className="space-y-3 pb-8">
+            {/* Period toggle */}
+            <div className="flex gap-2 mb-2">
+              {(['day', 'week', 'month'] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setCollectionPeriod(p)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${collectionPeriod === p ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:border-muted-foreground/40'}`}
+                >
+                  {p === 'day' ? 'Today' : p === 'week' ? 'This Week' : 'This Month'}
+                </button>
+              ))}
+            </div>
             {pendingDrivers.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-sm font-bold mb-3 flex items-center gap-2 text-amber-600">
@@ -429,8 +553,11 @@ export function AdminDashboard() {
                         </select>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => handleApprove(driver)} disabled={approvalLoading[driver.id]} className="flex-1 bg-success text-success-foreground hover:bg-success/90 rounded-lg text-xs">
+                        <Button size="sm" onClick={() => handleApprove(driver, false)} disabled={approvalLoading[driver.id]} className="flex-1 bg-success text-success-foreground hover:bg-success/90 rounded-lg text-xs">
                           {approvalLoading[driver.id] ? '...' : 'Approve'}
+                        </Button>
+                        <Button size="sm" onClick={() => handleApprove(driver, true)} disabled={approvalLoading[driver.id]} className="flex-1 bg-orange-500 text-white hover:bg-orange-400 rounded-lg text-xs">
+                          {approvalLoading[driver.id] ? '...' : 'Temp Driver'}
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => handleReject(driver)} disabled={approvalLoading[driver.id]} className="flex-1 border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs">
                           {approvalLoading[driver.id] ? '...' : 'Reject'}
@@ -452,7 +579,10 @@ export function AdminDashboard() {
                 <Card
                   key={driver.id}
                   className="p-4 shadow-card rounded-xl cursor-pointer"
-                  onClick={() => setExpandedDriverId(isExpanded ? null : driver.id)}
+                  onClick={() => {
+                    setExpandedDriverId(isExpanded ? null : driver.id);
+                    setCollectionDriverId(prev => prev === driver.id ? null : driver.id);
+                  }}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative">
@@ -482,6 +612,21 @@ export function AdminDashboard() {
                       <Button size="icon" variant="outline" className="h-9 w-9 rounded-lg" onClick={(e) => e.stopPropagation()}>
                         <Phone className="h-3.5 w-3.5" />
                       </Button>
+                      {(driver as any).is_temporary && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-9 border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await supabase.from('Drivers').delete().eq('id', driver.id);
+                            queryClient.invalidateQueries({ queryKey: ['drivers'] });
+                            toast(`${driver.name ?? 'Driver'} removed`);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -543,6 +688,9 @@ export function AdminDashboard() {
                         </p>
                       )}
                     </div>
+                  )}
+                  {collectionDriverId === driver.id && (
+                    <DriverCollectionPanel driverId={driver.id} period={collectionPeriod} />
                   )}
                 </Card>
               );
@@ -608,6 +756,46 @@ export function AdminDashboard() {
               { label: 'Return date', value: detailBooking.return_date },
               { label: 'Driver stay', value: detailBooking.driver_stay_required ? 'Required' : null },
             ];
+            useEffect(() => {
+    if (tab !== 'today') return;
+
+    let attempts = 0;
+    const tryInit = () => {
+      attempts++;
+      if (attempts > 20) return;
+      if (!window.mappls) { setTimeout(tryInit, 500); return; }
+
+      const mapContainer = document.getElementById("admin-map");
+      if (!mapContainer) { setTimeout(tryInit, 300); return; }
+      if (mapContainer.innerHTML !== "") return;
+
+      try {
+        const map = new window.mappls.Map("admin-map", {
+          center: [75.7873, 26.9124],
+          zoom: 12,
+          search: false,
+        });
+
+        map.on('load', () => {
+          drivers
+            .filter(d => d.status !== 'offline' && d.location_lat && d.location_lng)
+            .forEach(driver => {
+              const color = driver.status === 'free' ? '#22c55e' : '#f59e0b';
+              new window.mappls.Marker({
+                map,
+                position: [driver.location_lng!, driver.location_lat!],
+                popupHtml: `<div style="padding:4px 8px;font-size:12px;font-weight:600;color:${color}">${driver.name ?? 'Driver'}<br/><span style="font-size:10px;color:#666">${driver.status}</span></div>`,
+                popupOptions: { openPopup: false },
+              });
+            });
+        });
+      } catch (e) {
+        console.error('Admin map error:', e);
+      }
+    };
+
+    setTimeout(tryInit, 800);
+  }, [tab, drivers]);
             return (
               <div className="space-y-3">
                 {rows.filter(r => r.value !== null && r.value !== undefined && r.value !== '').map(row => (

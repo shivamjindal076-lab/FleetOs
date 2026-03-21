@@ -149,7 +149,7 @@ function endOfTodayISO() {
   return d.toISOString();
 }
 
-export function useTodayHandover(driverId: number | undefined) {
+export function useTodayHandover(driverId: number | null | undefined) {
   return useQuery({
     queryKey: ['cash-handovers', 'today', driverId],
     queryFn: async () => {
@@ -240,5 +240,26 @@ export function useLastBooking() {
       if (error || !data) return null;
       return data as Pick<SupabaseBooking, 'id' | 'pickup' | 'drop' | 'trip_type' | 'fare' | 'scheduled_at' | 'customer_name'>;
     },
+  });
+}
+export function useDriverCollections(driverId: number, period: 'day' | 'week' | 'month') {
+  return useQuery({
+    queryKey: ['driver-collections', driverId, period],
+    queryFn: async () => {
+      const start = new Date();
+      if (period === 'day') start.setHours(0, 0, 0, 0);
+      if (period === 'week') { start.setDate(start.getDate() - 7); start.setHours(0, 0, 0, 0); }
+      if (period === 'month') { start.setDate(start.getDate() - 30); start.setHours(0, 0, 0, 0); }
+
+      const { data, error } = await supabase
+        .from('bookings table')
+        .select('id, fare, amount_collected, payment_confirmed_at, scheduled_at, customer_name, pickup, drop, status, payment_method')
+        .eq('driver_id', driverId)
+        .gte('scheduled_at', start.toISOString())
+        .order('scheduled_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!driverId,
   });
 }

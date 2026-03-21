@@ -13,6 +13,12 @@ export interface BookingFormData {
   date: string;
   time: string;
   tripType: TripType;
+  customerName: string;
+  customerPhone: string;
+  hubCity: string;
+  numberOfDays: number;
+  passengerCount: number;
+  notes: string;
   // Airport
   airportDirection: 'arriving' | 'departing';
   flightNumber: string;
@@ -33,6 +39,12 @@ export const defaultFormData: BookingFormData = {
   date: '',
   time: '',
   tripType: 'local',
+  customerName: '',
+  customerPhone: '',
+  hubCity: 'Jaipur',
+  numberOfDays: 1,
+  passengerCount: 1,
+  notes: '',
   airportDirection: 'arriving',
   flightNumber: '',
   estimatedHours: 4,
@@ -64,6 +76,7 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
 
   const isValid = () => {
     if (!data.date || !data.time) return false;
+    if (!data.customerName.trim() || data.customerPhone.length < 10) return false;
     switch (data.tripType) {
       case 'local': return !!(data.pickup && data.drop);
       case 'airport': return !!(data.pickup);
@@ -99,12 +112,12 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
                     : 'bg-card text-muted-foreground hover:bg-muted'
                 )}
               >
-                {dir === 'arriving' ? '✈️ Arriving in Jaipur' : '✈️ Departing from Jaipur'}
+                {dir === 'arriving' ? `✈️ Arriving in ${data.hubCity || 'your city'}` : `✈️ Departing from ${data.hubCity || 'your city'}`}
               </button>
             ))}
           </div>
           <Input
-            value="Jaipur International Airport"
+            value={`${data.hubCity || 'City'} Airport`}
             disabled
             className="h-12 rounded-lg bg-muted text-sm"
           />
@@ -172,6 +185,28 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
                 {h}h
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Outstation / intercity — number of days */}
+{data.tripType === 'intercity' && (        <div>
+          <p className="text-xs font-semibold text-muted-foreground mb-2">Number of days</p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => update({ numberOfDays: Math.max(1, data.numberOfDays - 1) })}
+              className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+            >
+              −
+            </button>
+            <span className="text-xl font-bold w-8 text-center">{data.numberOfDays}</span>
+            <button
+              onClick={() => update({ numberOfDays: Math.min(30, data.numberOfDays + 1) })}
+              className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+            >
+              +
+            </button>
+            <span className="text-xs text-muted-foreground">day{data.numberOfDays > 1 ? 's' : ''}</span>
           </div>
         </div>
       )}
@@ -259,30 +294,113 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
           </div>
         </>
       )}
-
-      {/* Date + Time */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs text-muted-foreground mb-1 block">Date</label>
-          <Input
-            type="date"
-            value={data.date}
-            onChange={(e) => update({ date: e.target.value })}
-            className="h-12 rounded-lg"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground mb-1 block">
-            {data.tripType === 'airport' ? 'Flight time' : 'Pickup time'}
-          </label>
-          <Input
-            type="time"
-            value={data.time}
-            onChange={(e) => update({ time: e.target.value })}
-            className="h-12 rounded-lg"
-          />
+{/* Passenger count */}
+      <div>
+        <label className="text-xs text-muted-foreground mb-2 block">Number of passengers</label>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => update({ passengerCount: Math.max(1, data.passengerCount - 1) })}
+            className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+          >
+            −
+          </button>
+          <span className="text-xl font-bold w-6 text-center">{data.passengerCount}</span>
+          <button
+            onClick={() => update({ passengerCount: Math.min(20, data.passengerCount + 1) })}
+            className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+          >
+            +
+          </button>
+          <span className="text-xs text-muted-foreground">
+            {data.passengerCount === 1 ? '1 person' : `${data.passengerCount} people`}
+          </span>
         </div>
       </div>
+
+      {/* Customer details */}
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Your name</label>
+          <Input
+            placeholder="Full name"
+            value={data.customerName}
+            onChange={(e) => update({ customerName: e.target.value })}
+            className="h-12 rounded-lg"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Mobile number</label>
+          <div className="flex gap-2">
+            <div className="flex items-center justify-center px-3 bg-muted rounded-lg text-sm font-medium text-muted-foreground border">
+              +91
+            </div>
+            <Input
+              type="tel"
+              maxLength={10}
+              placeholder="9876543210"
+              value={data.customerPhone}
+              onChange={(e) => update({ customerPhone: e.target.value.replace(/\D/g, '') })}
+              className="h-12 rounded-lg"
+            />
+          </div>
+        </div>
+      </div>
+{/* Notes for driver */}
+      <div>
+        <label className="text-xs text-muted-foreground mb-1 block">Instructions for driver <span className="opacity-50">(optional)</span></label>
+        <textarea
+          rows={2}
+          placeholder="e.g. Call on arrival, extra luggage, AC preferred..."
+          value={data.notes}
+          onChange={(e) => update({ notes: e.target.value })}
+          className="w-full border border-input rounded-lg px-3 py-2.5 text-sm bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
+
+      {/* Date + Time */}
+      {/* Date + Time */}
+      <div className="grid grid-cols-2 gap-3"></div>
+      {/* Date + Time */}
+      {(() => {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() + 15);
+        const minDate = now.toISOString().split('T')[0];
+        const minTime = now.toTimeString().slice(0, 5);
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Date</label>
+              <Input
+                type="date"
+                value={data.date}
+                min={minDate}
+                placeholder={minDate}
+                onChange={(e) => update({ date: e.target.value })}
+                className="h-12 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                {data.tripType === 'airport' ? 'Flight time' : 'Pickup time'}
+              </label>
+              <Input
+                type="time"
+                value={data.time}
+                onChange={(e) => update({ time: e.target.value })}
+                className="h-12 rounded-lg"
+              />
+            </div>
+          </div>
+        );
+      })()}
+      {data.date && data.time && (
+        <p className="text-xs text-muted-foreground -mt-2">
+          {new Date(`${data.date}T${data.time}`).toLocaleString('en-IN', {
+            day: 'numeric', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+          })}
+        </p>
+      )}
 
       <Button
         onClick={onNext}

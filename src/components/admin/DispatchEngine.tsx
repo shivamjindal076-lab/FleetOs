@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Clock, Navigation, Phone, CheckCircle, AlertTriangle, Zap, RotateCcw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,44 +18,104 @@ interface DriverCandidate extends SupabaseDriver {
   etaMinutes: number;
   score: number;
   reason: string;
+  isBusy: boolean;
+  conflictTime?: string; // ISO string of conflicting booking
 }
 
-function rankDrivers(drivers: SupabaseDriver[]): DriverCandidate[] {
-  const available = drivers.filter(d => d.status === 'free');
-  return available.map((driver, i) => {
-    const distanceKm = +(1.5 + i * 2.3).toFixed(1);
-    const etaMinutes = Math.round(distanceKm * 3.2);
-    const score = Math.max(+(100 - distanceKm * 5).toFixed(0), 20);
-    return {
-      ...driver,
-      distanceKm,
-      etaMinutes,
-      score,
-      reason: i === 0 ? 'Nearest + available' : i === 1 ? 'Moderate distance' : 'Fallback option',
-    };
-  }).sort((a, b) => b.score - a.score);
+// ── Conflict check ────────────────────────────────────────────────────────────
+// Returns the conflicting booking's scheduled_at if driver is busy, else null
+async function getConflict(driverId: number, tripTime: string): Promise<string | null> {
+  const t = new Date(tripTime).getTime();
+  const windowStart = new Date(t - 2 * 60 * 60 * 1000).toISOString(); // -2hr
+  const windowEnd   = new Date(t + 4 * 60 * 60 * 1000).toISOString(); // +4hr
+
+  const { data } = await supabase
+    .from('bookings table')
+    .select('id, scheduled_at')
+    .eq('driver_id', driverId)
+    .in('status', ['confirmed', 'in-progress'])
+    .gte('scheduled_at', windowStart)
+    .lte('scheduled_at', windowEnd)
+    .limit(1);
+
+  if (data && data.length > 0) return data[0].scheduled_at;
+  return null;
+}
+
+function formatConflictTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-IN', {
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
 }
 
 export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEngineProps) {
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assigned, setAssigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<DriverCandidate[]>([]);
+  const [checking, setChecking] = useState(false);
   const { data: drivers = [] } = useDrivers();
+
+  // ── Build candidates with conflict check whenever dialog opens ────────────
+  useEffect(() => {
+    if (!open || !booking) return;
+
+    const scheduledAt = booking.scheduled_at ?? new Date().toISOString();
+
+    const build = async () => {
+      setChecking(true);
+      const freeDrivers = drivers.filter(d => d.status === 'free');
+
+      const results: DriverCandidate[] = await Promise.all(
+        freeDrivers.map(async (driver, i) => {
+          const conflictAt = await getConflict(driver.id, scheduledAt);
+          const distanceKm = +(1.5 + i * 2.3).toFixed(1);
+          const etaMinutes = Math.round(distanceKm * 3.2);
+          const score      = conflictAt ? 0 : Math.max(+(100 - distanceKm * 5).toFixed(0), 20);
+          const reason     = conflictAt
+            ? `Busy at ${formatConflictTime(conflictAt)}`
+            : i === 0 ? 'Nearest + available'
+            : i === 1 ? 'Moderate distance'
+            : 'Fallback option';
+
+          return {
+            ...driver,
+            distanceKm,
+            etaMinutes,
+            score,
+            reason,
+            isBusy: !!conflictAt,
+            conflictTime: conflictAt ?? undefined,
+          };
+        })
+      );
+
+      // Available first (by score desc), then busy
+      results.sort((a, b) => {
+        if (a.isBusy !== b.isBusy) return a.isBusy ? 1 : -1;
+        return b.score - a.score;
+      });
+
+      setCandidates(results);
+      setChecking(false);
+    };
+
+    build();
+  }, [open, booking, drivers]);
 
   if (!booking) return null;
 
-  const candidates = rankDrivers(drivers);
-  const topPick = candidates[0];
+  const available = candidates.filter(d => !d.isBusy);
+  const busy      = candidates.filter(d => d.isBusy);
+  const topPick   = available[0];
 
   const handleAssign = async (driverId: number) => {
     setAssigning(driverId);
+    setError(null);
     try {
       const { error } = await supabase
         .from('bookings table')
-        .update({
-          driver_id: driverId,
-          status: 'confirmed',
-        })
+        .update({ driver_id: driverId, status: 'confirmed' })
         .eq('id', booking.id);
 
       if (error) throw error;
@@ -68,9 +128,8 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
         setAssigning(null);
         onClose();
       }, 1500);
-
     } catch (err: any) {
-      console.error('Dispatch error:', err);
+      setError(err.message ?? 'Assignment failed');
       setAssigning(null);
     }
   };
@@ -97,44 +156,27 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
             </div>
             <div className="text-right">
               <p className="font-bold text-lg">₹{booking.fare ?? 0}</p>
+              {booking.scheduled_at && (
+                <p className="text-xs text-muted-foreground">
+                  {new Date(booking.scheduled_at).toLocaleString('en-IN', {
+                    day: 'numeric', month: 'short',
+                    hour: '2-digit', minute: '2-digit', hour12: true,
+                  })}
+                </p>
+              )}
             </div>
           </div>
         </Card>
 
-        {/* Auto-dispatch recommendation */}
-        {topPick && !assigned && (
-          <div className="border-2 border-success/40 rounded-xl p-3 bg-success/5">
-            <div className="flex items-center gap-2 mb-2">
-              <CheckCircle className="h-4 w-4 text-success" />
-              <span className="text-xs font-bold text-success uppercase tracking-wider">Recommended</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-                  {getDriverInitials(topPick.name)}
-                </div>
-                <div>
-                  <p className="text-sm font-bold">{topPick.name ?? 'Unknown'}</p>
-                  <p className="text-xs text-muted-foreground">{topPick.vehicle_model ?? 'N/A'}</p>
-                  <p className="text-xs text-success font-medium">{topPick.reason}</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-bold">{topPick.distanceKm} km</p>
-                <p className="text-xs text-muted-foreground">{topPick.etaMinutes} min ETA</p>
-              </div>
-            </div>
-            <Button
-              className="w-full mt-3 bg-success text-success-foreground hover:bg-success/90"
-              size="sm"
-              onClick={() => handleAssign(topPick.id)}
-              disabled={!!assigning}
-            >
-              {assigning === topPick.id ? 'Assigning...' : 'Auto-Assign Best Match'}
-            </Button>
+        {/* Checking state */}
+        {checking && (
+          <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+            <div className="h-4 w-4 rounded-full border-2 border-secondary border-t-transparent animate-spin" />
+            Checking driver availability...
           </div>
         )}
 
+        {/* Success */}
         {assigned && (
           <div className="text-center py-6">
             <CheckCircle className="h-12 w-12 text-success mx-auto mb-2" />
@@ -143,23 +185,64 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
           </div>
         )}
 
-        {/* Error message */}
         {error && (
           <p className="text-sm text-destructive font-medium">{error}</p>
         )}
 
-        {/* All candidates */}
-        {!assigned && (
+        {!checking && !assigned && (
           <>
+            {/* Auto-assign recommendation */}
+            {topPick && (
+              <div className="border-2 border-success/40 rounded-xl p-3 bg-success/5">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle className="h-4 w-4 text-success" />
+                  <span className="text-xs font-bold text-success uppercase tracking-wider">Recommended</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
+                      {getDriverInitials(topPick.name)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold">{topPick.name ?? 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground">{topPick.vehicle_model ?? 'N/A'}</p>
+                      <p className="text-xs text-success font-medium">{topPick.reason}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold">{topPick.distanceKm} km</p>
+                    <p className="text-xs text-muted-foreground">{topPick.etaMinutes} min ETA</p>
+                  </div>
+                </div>
+                <Button
+                  className="w-full mt-3 bg-success text-success-foreground hover:bg-success/90"
+                  size="sm"
+                  onClick={() => handleAssign(topPick.id)}
+                  disabled={!!assigning}
+                >
+                  {assigning === topPick.id ? 'Assigning...' : 'Auto-Assign Best Match'}
+                </Button>
+              </div>
+            )}
+
+            {/* ── AVAILABLE section ─────────────────────────────────────── */}
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">All Available ({candidates.length})</h4>
-              <Button variant="ghost" size="sm" className="text-xs h-7">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Available ({available.length})
+              </h4>
+              <Button
+                variant="ghost" size="sm" className="text-xs h-7"
+                onClick={() => {
+                  setChecking(true);
+                  setTimeout(() => setChecking(false), 100);
+                }}
+              >
                 <RotateCcw className="h-3 w-3 mr-1" /> Refresh
               </Button>
             </div>
 
             <div className="space-y-2">
-              {candidates.map((driver) => (
+              {available.map((driver) => (
                 <Card key={driver.id} className="p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -174,8 +257,12 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
                       <div>
                         <p className="text-sm font-semibold">{driver.name ?? 'Unknown'}</p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-0.5"><Navigation className="h-3 w-3" />{driver.distanceKm}km</span>
-                          <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />{driver.etaMinutes}min</span>
+                          <span className="flex items-center gap-0.5">
+                            <Navigation className="h-3 w-3" />{driver.distanceKm} km
+                          </span>
+                          <span className="flex items-center gap-0.5">
+                            <Clock className="h-3 w-3" />{driver.etaMinutes} min
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -184,27 +271,65 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
                         <Phone className="h-3.5 w-3.5" />
                       </Button>
                       <Button
-                        size="sm"
-                        className="h-8 text-xs"
+                        size="sm" className="h-8 text-xs"
                         onClick={() => handleAssign(driver.id)}
                         disabled={!!assigning}
                       >
-                        Assign
+                        {assigning === driver.id ? '...' : 'Assign'}
                       </Button>
                     </div>
                   </div>
                 </Card>
               ))}
+
+              {available.length === 0 && (
+                <div className="text-center py-6">
+                  <AlertTriangle className="h-10 w-10 text-warning mx-auto mb-2" />
+                  <p className="font-semibold text-sm">No conflict-free drivers available</p>
+                  <p className="text-xs text-muted-foreground mt-1">All free drivers have clashing bookings</p>
+                </div>
+              )}
             </div>
+
+            {/* ── BUSY section ──────────────────────────────────────────── */}
+            {busy.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 mt-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Busy — Clashing Bookings ({busy.length})
+                  </h4>
+                </div>
+                <div className="space-y-2">
+                  {busy.map((driver) => (
+                    <Card key={driver.id} className="p-3 opacity-60 bg-muted/30">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-xs font-bold">
+                            {getDriverInitials(driver.name)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-muted-foreground">{driver.name ?? 'Unknown'}</p>
+                            <p className="text-xs text-destructive font-medium flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              {driver.reason}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-xs px-2 py-1 rounded-full bg-destructive/10 text-destructive border border-destructive/20 font-medium">
+                          Busy
+                        </span>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </>
+            )}
 
             {candidates.length === 0 && (
               <div className="text-center py-8">
                 <AlertTriangle className="h-10 w-10 text-warning mx-auto mb-2" />
                 <p className="font-semibold text-sm">No drivers available</p>
                 <p className="text-xs text-muted-foreground mt-1">All drivers are on trips or offline</p>
-                <Button variant="outline" size="sm" className="mt-3 text-xs">
-                  Notify All Offline Drivers
-                </Button>
               </div>
             )}
           </>

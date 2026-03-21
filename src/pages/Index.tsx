@@ -98,7 +98,7 @@ const Index = () => {
       {view === 'pricing' && <PricingEngine />}
 
       {/* View switcher (prototype nav) */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+      <div className="fixed top-4 right-4 z-50">
         <div className="flex items-center gap-1 bg-primary/95 backdrop-blur-sm rounded-full px-1.5 py-1.5 shadow-elevated">
           {([
             { id: 'customer' as AppView, label: 'Customer', icon: Car, show: true },
