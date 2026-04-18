@@ -11,10 +11,10 @@
  * One:  npx playwright test fleetos.p0.spec.ts -g "F-01"
  */
 
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const BASE_URL    = 'http://localhost:8080';
+const BASE_URL    = process.env.BASE_URL || 'http://localhost:8080';
 const ADMIN_EMAIL = 'shivamjindal076@gmail.com';
 const ADMIN_PASS  = process.env.ADMIN_PASSWORD || 'your_password_here';
 
@@ -24,19 +24,18 @@ const ADMIN_PASS  = process.env.ADMIN_PASSWORD || 'your_password_here';
 async function loginAsAdmin(page: Page) {
   await page.goto(BASE_URL);
 
-  // App loads on Customer view — click any protected nav item to trigger login
-  // Use the Login button or navigate directly to trigger the auth gate
-  await page.goto(`${BASE_URL}?view=admin`);
-  
-  // Wait for login form to appear
-  await expect(page.getByLabel(/email/i)).toBeVisible({ timeout: 10000 });
+  // Click the Login button in the top-right nav
+  await page.getByTestId('open-login').click();
+
+  // Select Admin tile (defaults to admin, but click to be sure)
+  await page.getByRole('button', { name: /^admin$/i }).click();
 
   // Fill in credentials
   await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
   await page.getByLabel(/password/i).fill(ADMIN_PASS);
-  await page.getByRole('button', { name: /sign in|log in/i }).click();
+  await page.getByRole('button', { name: /sign in/i }).click();
 
-  // Wait for dashboard to load
+  // Wait for dashboard to load (stats row visible)
   await expect(page.getByText(/free/i).first()).toBeVisible({ timeout: 10000 });
 }
 
@@ -52,14 +51,6 @@ async function goFleetHealth(page: Page) {
   await page.waitForTimeout(500);
 }
 
-/** Find the first pending booking card in the Instant Queue */
-async function getFirstPendingCard(page: Page): Promise<Locator> {
-  await goTodaysBoard(page);
-  const cards = page.locator('[data-testid="pending-booking-card"], .instant-queue-card').first();
-  // Fallback — find the Assign Driver button and go up to its card
-  const assignBtn = page.getByRole('button', { name: /assign driver/i }).first();
-  return assignBtn.locator('..').locator('..');
-}
 
 // ─── F-01 TESTS ──────────────────────────────────────────────────────────────
 
@@ -83,8 +74,11 @@ test.describe('F-01 — DispatchEngine writes to Supabase', () => {
     await page.getByRole('button', { name: /assign driver/i }).first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await expect(dialog.locator('p.font-semibold').first()).toBeVisible();
+    // Should show a customer name (non-empty text)
+    await expect(dialog.locator('text=/[A-Za-z]+/')).toBeVisible();
+    // Should show a fare (₹ symbol)
     await expect(dialog.getByText(/₹/)).toBeVisible();
+    // Should show a route (→ arrow)
     await expect(dialog.getByText(/→/)).toBeVisible();
   });
 
@@ -216,7 +210,7 @@ test.describe('F-01 — DispatchEngine writes to Supabase', () => {
 
   test('AC-9: Error state shows inside dialog if Supabase fails', async ({ page }) => {
     // Simulate by intercepting the Supabase request and returning an error
-    await page.route('**/rest/v1/bookings%20table*', async route => {
+    await page.route('**/rest/v1/bookings*', async route => {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -367,7 +361,7 @@ test.describe('F-02 — Payment tracking: log cash/UPI per trip', () => {
 
   test('AC-9: Error during payment write keeps Sheet open with error message', async ({ page }) => {
     // Intercept the bookings table PATCH and return error
-    await page.route('**/rest/v1/bookings%20table*', async route => {
+    await page.route('**/rest/v1/bookings*', async route => {
       if (route.request().method() === 'PATCH') {
         await route.fulfill({
           status: 500,
@@ -467,9 +461,6 @@ test.describe('F-03 — Daily collections summary widget', () => {
 
     await unpaidIndicator.click();
     await page.waitForTimeout(400);
-    const amountInput = page.getByLabel(/amount/i).or(page.getByPlaceholder(/amount/i)).first();
-    const currentVal = await amountInput.inputValue();
-
     await page.getByRole('button', { name: /mark as received/i }).click();
     await expect(page.getByText(/payment logged/i)).toBeVisible({ timeout: 5000 });
 
@@ -480,7 +471,7 @@ test.describe('F-03 — Daily collections summary widget', () => {
 
   test('AC-8: Shows ₹0 with zero pending when no bookings exist — does not crash', async ({ page }) => {
     // Intercept bookings query and return empty array
-    await page.route('**/rest/v1/bookings%20table*', async route => {
+    await page.route('**/rest/v1/bookings*', async route => {
       if (route.request().method() === 'GET') {
         await route.fulfill({
           status: 200,

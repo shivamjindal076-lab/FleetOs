@@ -1,15 +1,10 @@
-declare global {
-  interface Window {
-    mappls: any;
-  }
-}
 import { useState, useEffect, useRef } from 'react';
 import {
   Car, Navigation, Phone, Clock, MapPin, Camera, FileText,
   CheckCircle, XCircle, X, Power, AlertTriangle, Wallet,
   TrendingUp, Bell, BellOff, Fuel, IndianRupee, WifiOff,
-  Wifi, ChevronRight, Plus, Trash2, PhoneCall, PhoneOff,
-  Calendar, AlarmClock, Shield
+  Wifi, ChevronRight, Plus, Trash2, PhoneCall,
+  Calendar, AlarmClock, Shield, Zap
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,10 +12,13 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { useMyDriverProfile, useTodayHandover, SupabaseBooking } from '@/hooks/useSupabaseData';
+import { useOrg } from '@/hooks/useOrg';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { olaDirections, olaGeocode, useOlaMaps } from '@/lib/olaMaps';
+import { queueFeedbackMessage, queueInvoiceMessage } from '@/lib/customerAutomation';
 
-// ─── TYPES ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ TYPES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type DriverScreen = 'home' | 'active-trip' | 'earnings' | 'documents' | 'expenses';
 type TripPhase = 'navigating' | 'arrived' | 'started' | 'completed';
@@ -34,6 +32,7 @@ interface ScheduledTrip {
   fare: number;
   distance: string;
   scheduledAt: string;
+  notes: string;
   tripType: 'city' | 'airport' | 'outstation' | 'sightseeing';
   status: 'pending_confirm' | 'confirmed' | 'active';
 }
@@ -67,28 +66,27 @@ interface MockTrip {
   drop: string;
   fare: number;
   distance: string;
+  notes?: string;
   tripType: string;
   eta: string;
 }
 
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const JAIPUR_CENTER = { lat: 26.9124, lng: 75.7873 };
+const PICKUP_FALLBACK = { lat: 26.85, lng: 75.85 };
+const DROP_FALLBACK = { lat: 26.95, lng: 75.9 };
+
+// â”€â”€â”€ CONSTANTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TRIP_TYPE_ICONS: Record<string, string> = {
-  city: '🚗', airport: '✈️', outstation: '🛣️', sightseeing: '🏛️',
+  city: 'ðŸš—', airport: 'âœˆï¸', outstation: 'ðŸ›£ï¸', sightseeing: 'ðŸ›ï¸',
 };
 
 const EXPENSE_LABELS: Record<string, string> = {
-  fuel_petrol: '⛽ Petrol',
-  fuel_cng: '💨 CNG',
-  toll: '🛣️ Toll',
-  parking: '🅿️ Parking',
-  other: '📝 Other',
-};
-
-const earningsData = {
-  today: 1450, week: 8200, month: 32500,
-  trips: { today: 6, week: 34, month: 142 },
-  rating: 4.8, acceptance: 94,
+  fuel_petrol: 'â›½ Petrol',
+  fuel_cng: 'ðŸ’¨ CNG',
+  toll: 'ðŸ›£ï¸ Toll',
+  parking: 'ðŸ…¿ï¸ Parking',
+  other: 'ðŸ“ Other',
 };
 
 const documents = [
@@ -99,7 +97,7 @@ const documents = [
   { name: 'PAN Card', status: 'verified' as const, expiry: null },
 ];
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -118,12 +116,50 @@ function getHoursUntil(iso: string) {
   return 'Now';
 }
 
-function bookingToTrip(b: SupabaseBooking): ScheduledTrip {
-  const statusMap: Record<string, ScheduledTrip['status']> = {
-    pending: 'pending_confirm',
-    confirmed: 'confirmed',
-    'in-progress': 'active',
+function formatCurrency(amount: number) {
+  return `Rs ${amount.toLocaleString('en-IN')}`;
+}
+
+function metersBetween(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number }
+) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const dLat = toRad(to.lat - from.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(from.lat)) *
+      Math.cos(toRad(to.lat)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadius * c;
+}
+
+function bookingToActiveTrip(booking: SupabaseBooking): MockTrip {
+  return {
+    id: `BK-${booking.id}`,
+    customerName: booking.customer_name ?? 'Customer',
+    customerPhone: booking.customer_phone ?? '',
+    pickup: booking.pickup ?? '',
+    drop: booking.drop ?? '',
+    fare: booking.fare ?? 0,
+    distance: 'Live route',
+    notes: booking.notes ?? undefined,
+    tripType: booking.trip_type ?? 'city',
+    eta: getHoursUntil(booking.scheduled_at ?? new Date().toISOString()),
   };
+}
+
+function bookingToTrip(b: SupabaseBooking): ScheduledTrip {
+  const mappedStatus: ScheduledTrip['status'] =
+    b.status === 'in-progress'
+      ? 'active'
+      : b.status === 'confirmed'
+        ? (b.driver_confirmed_at ? 'confirmed' : 'pending_confirm')
+        : 'pending_confirm';
   return {
     id: `BK-${b.id}`,
     customerName: b.customer_name ?? 'Customer',
@@ -131,14 +167,23 @@ function bookingToTrip(b: SupabaseBooking): ScheduledTrip {
     pickup: b.pickup ?? '',
     drop: b.drop ?? '',
     fare: b.fare ?? 0,
-    distance: '—',
+    distance: 'â€”',
     scheduledAt: b.scheduled_at ?? new Date().toISOString(),
+    notes: b.notes ?? '',
     tripType: (b.trip_type as ScheduledTrip['tripType']) ?? 'city',
-    status: statusMap[b.status ?? ''] ?? 'pending_confirm',
+    status: mappedStatus,
   };
 }
 
-// ─── ALARM COMPONENT ─────────────────────────────────────────────────────────
+const trackedBookingStatuses = ['pending', 'confirmed', 'in-progress'] as const;
+
+function sortTripsBySchedule(trips: ScheduledTrip[]) {
+  return [...trips].sort(
+    (left, right) => new Date(left.scheduledAt).getTime() - new Date(right.scheduledAt).getTime()
+  );
+}
+
+// â”€â”€â”€ ALARM COMPONENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function TripAlarm({ trip, onConfirm, onDismiss }: {
   trip: ScheduledTrip;
@@ -196,7 +241,7 @@ function TripAlarm({ trip, onConfirm, onDismiss }: {
           </div>
           <div className="mb-5">
             <div className="text-2xl font-black text-white mb-1">{trip.customerName}</div>
-            <div className="text-orange-400 font-bold text-lg mb-3">{TRIP_TYPE_ICONS[trip.tripType]} ₹{trip.fare.toLocaleString()}</div>
+            <div className="text-orange-400 font-bold text-lg mb-3">{TRIP_TYPE_ICONS[trip.tripType]} â‚¹{trip.fare.toLocaleString()}</div>
             <div className="space-y-2.5">
               <div className="flex items-start gap-2.5">
                 <div className="h-2.5 w-2.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
@@ -214,7 +259,7 @@ function TripAlarm({ trip, onConfirm, onDismiss }: {
             </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={onConfirm} className="flex-1 py-4 rounded-2xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all font-black text-white text-base flex items-center justify-center gap-2 shadow-lg shadow-green-500/30">
+            <button onClick={onConfirm} className="flex-1 py-4 rounded-2xl kinetic-gradient active:scale-95 transition-all font-display font-black text-white text-xl flex items-center justify-center gap-2 shadow-elevated min-h-[64px]">
               <CheckCircle className="h-5 w-5" /> CONFIRM
             </button>
             <button onClick={onDismiss} className="flex-1 py-4 rounded-2xl bg-gray-700 hover:bg-gray-600 active:scale-95 transition-all font-bold text-gray-300 text-base flex items-center justify-center gap-2">
@@ -227,61 +272,50 @@ function TripAlarm({ trip, onConfirm, onDismiss }: {
   );
 }
 
-// ─── MASKED CALL COMPONENT ────────────────────────────────────────────────────
+// â”€â”€â”€ CONTACT ACTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function MaskedCallButton({ customerName, tripId }: { customerName: string; tripId: string }) {
-  const [callState, setCallState] = useState<'idle' | 'connecting' | 'active' | 'ended'>('idle');
-  const [duration, setDuration] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+function ContactActions({
+  customerName,
+  customerPhone,
+}: {
+  customerName: string;
+  customerPhone: string;
+}) {
+  const sanitizedPhone = customerPhone.replace(/\D/g, '');
 
-  const startCall = () => {
-    setCallState('connecting');
-    setTimeout(() => {
-      setCallState('active');
-      timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
-    }, 1500);
-  };
-
-  const endCall = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setCallState('ended');
-    setTimeout(() => { setCallState('idle'); setDuration(0); }, 2000);
-  };
-
-  const formatDuration = (s: number) =>
-    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-
-  if (callState === 'idle') return (
-    <button onClick={startCall} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-500/25 active:scale-95 transition-all">
-      <PhoneCall className="h-4 w-4" /> Call Customer
-      <span className="text-[10px] bg-blue-500/20 px-1.5 py-0.5 rounded-full text-blue-300">Masked</span>
-    </button>
-  );
-  if (callState === 'connecting') return (
-    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 text-sm font-semibold">
-      <div className="h-2 w-2 rounded-full bg-yellow-400 animate-pulse" /> Connecting to {customerName}...
-    </div>
-  );
-  if (callState === 'active') return (
-    <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-green-500/15 border border-green-500/30">
-      <div className="flex items-center gap-2 text-green-400">
-        <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-        <span className="text-sm font-bold">{customerName}</span>
-        <span className="font-mono text-xs">{formatDuration(duration)}</span>
-      </div>
-      <button onClick={endCall} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold active:scale-95 transition-all">
-        <PhoneOff className="h-3.5 w-3.5" /> End
-      </button>
-    </div>
-  );
   return (
-    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-500/15 border border-gray-500/30 text-gray-400 text-sm">
-      <CheckCircle className="h-4 w-4" /> Call ended · {formatDuration(duration)}
+    <div className="grid grid-cols-2 gap-2">
+      <a
+        href={sanitizedPhone ? `tel:${sanitizedPhone}` : undefined}
+        className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all ${
+          sanitizedPhone
+            ? 'border-blue-500/30 bg-blue-500/15 text-blue-300 active:scale-95'
+            : 'cursor-not-allowed border-gray-700 bg-gray-800 text-gray-500'
+        }`}
+        aria-disabled={!sanitizedPhone}
+      >
+        <PhoneCall className="h-4 w-4" />
+        Call {customerName}
+      </a>
+      <a
+        href={sanitizedPhone ? `https://wa.me/${sanitizedPhone}` : undefined}
+        target="_blank"
+        rel="noreferrer"
+        className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all ${
+          sanitizedPhone
+            ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300 active:scale-95'
+            : 'cursor-not-allowed border-gray-700 bg-gray-800 text-gray-500'
+        }`}
+        aria-disabled={!sanitizedPhone}
+      >
+        <Phone className="h-4 w-4" />
+        WhatsApp
+      </a>
     </div>
   );
 }
 
-// ─── EXPENSE TRACKER ──────────────────────────────────────────────────────────
+// â”€â”€â”€ EXPENSE TRACKER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function ExpenseTracker({
   isOffline, expenses, collections,
@@ -336,7 +370,7 @@ function ExpenseTracker({
           <WifiOff className="h-4 w-4 text-orange-400 flex-shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-bold text-orange-300">You're offline</p>
-            <p className="text-xs text-orange-400/70">All entries saved locally — will sync when online</p>
+            <p className="text-xs text-orange-400/70">All entries saved locally â€” will sync when online</p>
           </div>
           {pendingSync > 0 && <span className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full font-bold">{pendingSync} pending</span>}
         </div>
@@ -355,15 +389,15 @@ function ExpenseTracker({
         <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Today's Summary</div>
         <div className="grid grid-cols-3 gap-3">
           <div className="text-center p-3 rounded-xl bg-green-500/10 border border-green-500/20">
-            <div className="text-lg font-black text-green-400">₹{totalCollected.toLocaleString()}</div>
+            <div className="text-lg font-black text-green-400">â‚¹{totalCollected.toLocaleString()}</div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">Collected</div>
           </div>
           <div className="text-center p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-            <div className="text-lg font-black text-red-400">₹{totalExpenses.toLocaleString()}</div>
+            <div className="text-lg font-black text-red-400">â‚¹{totalExpenses.toLocaleString()}</div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">Spent</div>
           </div>
           <div className={`text-center p-3 rounded-xl border ${netEarnings >= 0 ? 'bg-blue-500/10 border-blue-500/20' : 'bg-orange-500/10 border-orange-500/20'}`}>
-            <div className={`text-lg font-black ${netEarnings >= 0 ? 'text-blue-400' : 'text-orange-400'}`}>₹{Math.abs(netEarnings).toLocaleString()}</div>
+            <div className={`text-lg font-black ${netEarnings >= 0 ? 'text-blue-400' : 'text-orange-400'}`}>â‚¹{Math.abs(netEarnings).toLocaleString()}</div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">Net</div>
           </div>
         </div>
@@ -377,12 +411,12 @@ function ExpenseTracker({
         </div>
         {addingCollection && (
           <div className="mb-3 p-3 rounded-xl bg-gray-800 border border-gray-700 space-y-2.5">
-            <input type="number" className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Amount (₹)" value={colAmount} onChange={e => setColAmount(e.target.value)} />
+            <input type="number" className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Amount (â‚¹)" value={colAmount} onChange={e => setColAmount(e.target.value)} />
             <input className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Note (optional)" value={colNote} onChange={e => setColNote(e.target.value)} />
             <div className="flex gap-2">
               {(['cash', 'upi'] as const).map(m => (
                 <button key={m} onClick={() => setColMethod(m)} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${colMethod === m ? 'bg-green-500 border-green-500 text-white' : 'bg-gray-700 border-gray-600 text-gray-300'}`}>
-                  {m === 'cash' ? '💵 Cash' : '📱 UPI'}
+                  {m === 'cash' ? 'ðŸ’µ Cash' : 'ðŸ“± UPI'}
                 </button>
               ))}
             </div>
@@ -395,11 +429,11 @@ function ExpenseTracker({
             <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
               <div>
                 <div className="text-sm font-semibold text-white">{c.note ? c.note : 'Cash collected'}</div>
-                <div className="text-xs text-gray-400">{c.method === 'cash' ? '💵 Cash' : '📱 UPI'} · {new Date(c.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="text-xs text-gray-400">{c.method === 'cash' ? 'ðŸ’µ Cash' : 'ðŸ“± UPI'} Â· {new Date(c.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div className="flex items-center gap-2">
                 {c.isOffline && <WifiOff className="h-3 w-3 text-orange-400" />}
-                <span className="text-sm font-bold text-green-400">+₹{c.amount}</span>
+                <span className="text-sm font-bold text-green-400">+â‚¹{c.amount}</span>
               </div>
             </div>
           ))}
@@ -421,7 +455,7 @@ function ExpenseTracker({
                 </button>
               ))}
             </div>
-            <input type="number" className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Amount (₹)" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+            <input type="number" className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Amount (â‚¹)" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
             <input className="w-full px-3 py-2.5 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Note (optional)" value={expNote} onChange={e => setExpNote(e.target.value)} />
             <button onClick={submitExpense} className="w-full py-2.5 rounded-lg bg-orange-500 text-white text-sm font-bold active:scale-95 transition-all">Save Expense</button>
           </div>
@@ -431,12 +465,12 @@ function ExpenseTracker({
           {expenses.map(e => (
             <div key={e.id} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
               <div>
-                <div className="text-sm font-semibold text-white">{EXPENSE_LABELS[e.type]}{e.note ? ` · ${e.note}` : ''}</div>
+                <div className="text-sm font-semibold text-white">{EXPENSE_LABELS[e.type]}{e.note ? ` Â· ${e.note}` : ''}</div>
                 <div className="text-xs text-gray-400">{new Date(e.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div className="flex items-center gap-2">
                 {e.isOffline && <WifiOff className="h-3 w-3 text-orange-400" />}
-                <span className="text-sm font-bold text-red-400">-₹{e.amount}</span>
+                <span className="text-sm font-bold text-red-400">-â‚¹{e.amount}</span>
                 <button onClick={() => onDeleteExpense(e.id)} className="text-gray-600 hover:text-red-400 transition-colors">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -447,7 +481,7 @@ function ExpenseTracker({
       </Card>
       <Card className="p-4 bg-gray-900 border-gray-800">
         <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Cash Handover</div>
-        <p className="text-2xl font-black text-white mb-1">₹{Math.max(0, cashToHandOver).toLocaleString('en-IN')}</p>
+        <p className="text-2xl font-black text-white mb-1">â‚¹{Math.max(0, cashToHandOver).toLocaleString('en-IN')}</p>
         <p className="text-xs text-gray-500 mb-3">cash to hand over to Anil today</p>
         {cashToHandOver > 0 && !todayHandover && (
           <button onClick={() => onHandOver(cashToHandOver)} disabled={handoverLoading} className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-white font-bold text-sm disabled:opacity-50">
@@ -456,7 +490,7 @@ function ExpenseTracker({
         )}
         {todayHandover && (
           <p className="text-xs text-green-400 font-medium">
-            ✓ Recorded at {new Date(todayHandover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+            âœ“ Recorded at {new Date(todayHandover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
           </p>
         )}
       </Card>
@@ -464,7 +498,7 @@ function ExpenseTracker({
   );
 }
 
-// ─── SCHEDULED TRIP CARD ──────────────────────────────────────────────────────
+// â”€â”€â”€ SCHEDULED TRIP CARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function ScheduledTripCard({ trip, isOffline, onConfirm, onTap }: {
   trip: ScheduledTrip;
@@ -486,7 +520,7 @@ function ScheduledTripCard({ trip, isOffline, onConfirm, onTap }: {
           <div className="font-bold text-white">{trip.customerName}</div>
         </div>
         <div className="text-right">
-          <div className="text-lg font-black text-white">₹{trip.fare.toLocaleString()}</div>
+          <div className="text-lg font-black text-white">â‚¹{trip.fare.toLocaleString()}</div>
           <div className="text-xs text-gray-400">{trip.distance}</div>
         </div>
       </div>
@@ -497,7 +531,7 @@ function ScheduledTripCard({ trip, isOffline, onConfirm, onTap }: {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5 text-xs">
           <AlarmClock className={`h-3.5 w-3.5 ${isUrgent ? 'text-orange-400' : 'text-gray-400'}`} />
-          <span className={isUrgent ? 'text-orange-300 font-bold' : 'text-gray-400'}>{formatDate(trip.scheduledAt)} · {formatTime(trip.scheduledAt)}</span>
+          <span className={isUrgent ? 'text-orange-300 font-bold' : 'text-gray-400'}>{formatDate(trip.scheduledAt)} Â· {formatTime(trip.scheduledAt)}</span>
         </div>
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isUrgent ? 'bg-orange-500/20 text-orange-300' : 'bg-gray-700 text-gray-300'}`}>{getHoursUntil(trip.scheduledAt)}</span>
       </div>
@@ -509,7 +543,7 @@ function ScheduledTripCard({ trip, isOffline, onConfirm, onTap }: {
           >
             <CheckCircle className="h-4 w-4" /> Confirm Trip
           </button>
-          {isOffline && <div className="flex items-center gap-1 text-[10px] text-orange-400 px-2"><WifiOff className="h-3 w-3" /><span>Offline·saves locally</span></div>}
+          {isOffline && <div className="flex items-center gap-1 text-[10px] text-orange-400 px-2"><WifiOff className="h-3 w-3" /><span>OfflineÂ·saves locally</span></div>}
         </div>
       ) : (
         <div className="flex items-center gap-2 py-2 px-3 rounded-xl bg-green-500/10 border border-green-500/20">
@@ -522,7 +556,188 @@ function ScheduledTripCard({ trip, isOffline, onConfirm, onTap }: {
   );
 }
 
-// ─── MAIN DRIVER APP ──────────────────────────────────────────────────────────
+// â”€â”€â”€ MAIN DRIVER APP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+function DriverTripMap({
+  activeTrip,
+  tripPhase,
+  driverPosition,
+}: {
+  activeTrip: MockTrip;
+  tripPhase: TripPhase;
+  driverPosition: { lat: number; lng: number } | null;
+}) {
+  const { addMarker, containerRef, drawRoute, error, fitBounds, isLoaded, providerLabel, removeRoute } = useOlaMaps(JAIPUR_CENTER, 12);
+  const markersRef = useRef<any[]>([]);
+  const routeLayerRef = useRef<string[]>([]);
+  const [points, setPoints] = useState<{ pickup: { lat: number; lng: number }; drop: { lat: number; lng: number } }>({
+    pickup: PICKUP_FALLBACK,
+    drop: DROP_FALLBACK,
+  });
+  const [isResolving, setIsResolving] = useState(false);
+  const [routeProviderLabel, setRouteProviderLabel] = useState('Resolving route');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveTripPoints = async () => {
+      setIsResolving(true);
+
+      try {
+        const [pickup, drop] = await Promise.all([
+          olaGeocode(activeTrip.pickup),
+          olaGeocode(activeTrip.drop),
+        ]);
+
+        if (cancelled) return;
+
+        setPoints({
+          pickup: pickup ?? PICKUP_FALLBACK,
+          drop: drop ?? DROP_FALLBACK,
+        });
+      } catch {
+        if (!cancelled) {
+          setPoints({ pickup: PICKUP_FALLBACK, drop: DROP_FALLBACK });
+        }
+      } finally {
+        if (!cancelled) setIsResolving(false);
+      }
+    };
+
+    resolveTripPoints();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTrip.drop, activeTrip.pickup]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    setRouteProviderLabel('Resolving route');
+
+    markersRef.current.forEach(marker => marker?.remove?.());
+    markersRef.current = [];
+
+    routeLayerRef.current.forEach(removeRoute);
+    routeLayerRef.current = [];
+
+    const fallbackDriverPoint =
+      tripPhase === 'started' || tripPhase === 'completed'
+        ? points.pickup
+        : tripPhase === 'arrived'
+          ? points.pickup
+          : JAIPUR_CENTER;
+    const driverPoint = driverPosition ?? fallbackDriverPoint;
+    const routeTarget = tripPhase === 'started' ? points.drop : points.pickup;
+
+    const driverMarker = addMarker({
+      lat: driverPoint.lat,
+      lng: driverPoint.lng,
+      color: '#3b82f6',
+      label: '<div style="padding:6px 8px;font-size:12px;font-weight:700">You</div>',
+    });
+    if (driverMarker) markersRef.current.push(driverMarker);
+
+    const pickupMarker = addMarker({
+      lat: points.pickup.lat,
+      lng: points.pickup.lng,
+      color: '#22c55e',
+      label: `<div style="padding:6px 8px;font-size:12px;font-weight:700">${activeTrip.customerName}</div><div style="padding:0 8px 6px;font-size:11px;color:#64748b">${activeTrip.pickup}</div>`,
+    });
+    if (pickupMarker) markersRef.current.push(pickupMarker);
+
+    const dropMarker = addMarker({
+      lat: points.drop.lat,
+      lng: points.drop.lng,
+      color: '#ef4444',
+      label: `<div style="padding:6px 8px;font-size:12px;font-weight:700">Drop</div><div style="padding:0 8px 6px;font-size:11px;color:#64748b">${activeTrip.drop}</div>`,
+    });
+    if (dropMarker) markersRef.current.push(dropMarker);
+
+    fitBounds(
+      [
+        [driverPoint.lng, driverPoint.lat],
+        [points.pickup.lng, points.pickup.lat],
+        [points.drop.lng, points.drop.lat],
+      ],
+      68
+    );
+
+    if (tripPhase === 'completed') {
+      setRouteProviderLabel('Trip completed');
+    } else {
+      let cancelled = false;
+      olaDirections(driverPoint, routeTarget)
+        .then(route => {
+          if (cancelled || !route?.polyline) {
+            setRouteProviderLabel('Marker fallback');
+            return;
+          }
+          const haloLayer = drawRoute(route.polyline, {
+            color: '#ffffff',
+            weight: 10,
+            opacity: 0.88,
+          });
+          const lineLayer = drawRoute(route.polyline, {
+            color: '#2563eb',
+            weight: 5.5,
+            opacity: 0.92,
+          });
+          routeLayerRef.current = [haloLayer, lineLayer].filter(Boolean) as string[];
+          setRouteProviderLabel(`${route.provider.toUpperCase()} routing`);
+        })
+        .catch(() => {
+          setRouteProviderLabel('Marker fallback');
+        });
+
+      return () => {
+        cancelled = true;
+        markersRef.current.forEach(marker => marker?.remove?.());
+        markersRef.current = [];
+        routeLayerRef.current.forEach(removeRoute);
+        routeLayerRef.current = [];
+      };
+    }
+
+    return () => {
+      markersRef.current.forEach(marker => marker?.remove?.());
+      markersRef.current = [];
+      routeLayerRef.current.forEach(removeRoute);
+      routeLayerRef.current = [];
+    };
+  }, [activeTrip.customerName, activeTrip.drop, activeTrip.pickup, addMarker, drawRoute, driverPosition, fitBounds, isLoaded, points, removeRoute, tripPhase]);
+
+  const fallbackTitle = 'Unable to load the trip map';
+  const fallbackBody = error ?? 'The trip map could not be loaded right now. Check the browser network tab and try again.';
+
+  return (
+    <div className="h-full w-full rounded-xl overflow-hidden relative">
+      <div ref={containerRef} className="h-full w-full rounded-xl" />
+
+      <div className="absolute top-3 right-3 z-10 rounded-xl border border-white/70 bg-white/90 px-3 py-2 shadow-lg backdrop-blur-md">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Map stack</p>
+        <p className="mt-1 text-xs font-semibold text-slate-900">{providerLabel}</p>
+        <p className="mt-1 text-[11px] text-slate-500">{routeProviderLabel}</p>
+      </div>
+
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/95 px-5 text-center">
+          <MapPin className="h-8 w-8 text-gray-500 mb-3" />
+          <p className="text-sm font-bold text-white">{fallbackTitle}</p>
+          <p className="text-xs text-gray-400 mt-2">
+            {fallbackBody}
+          </p>
+        </div>
+      )}
+
+      {!error && isResolving && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900/55 text-xs font-semibold text-white backdrop-blur-[1px]">
+          Resolving route...
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface DriverAppProps { driver?: { id: number; name: string; status: string } | null }
 
@@ -540,112 +755,83 @@ export function DriverApp({ driver }: DriverAppProps) {
   const [collectAmount, setCollectAmount] = useState('');
   const [collectMethod, setCollectMethod] = useState<'cash' | 'upi'>('cash');
   const [collectLoading, setCollectLoading] = useState(false);
+  const [showUpiDetails, setShowUpiDetails] = useState(false);
   const [bannerTrips, setBannerTrips] = useState<string[]>([]);
   const [alarmTrips, setAlarmTrips] = useState<string[]>([]);
   const [detailTrip, setDetailTrip] = useState<ScheduledTrip | null>(null);
   const [lastHandoverId, setLastHandoverId] = useState<number | null>(null);
   const [handoverDoneAt, setHandoverDoneAt] = useState<Date | null>(null);
-
-  useEffect(() => {
-    if (screen !== 'active-trip') return;
-
-    let attempts = 0;
-    const tryInit = () => {
-      attempts++;
-      if (attempts > 20) return;
-
-      if (!window.mappls) {
-        setTimeout(tryInit, 500);
-        return;
-      }
-
-      const mapContainer = document.getElementById("map");
-      if (!mapContainer) {
-        setTimeout(tryInit, 300);
-        return;
-      }
-
-      // Clear previous map instance
-      mapContainer.innerHTML = "";
-
-      try {
-        const mapCenter = activeTrip
-          ? [75.7873, 26.9124]
-          : [75.7873, 26.9124];
-
-        const map = new window.mappls.Map("map", {
-          center: mapCenter,
-          zoom: 13,
-          search: false,
-        });
-
-        map.on('load', () => {
-          // Driver location marker (blue)
-          new window.mappls.Marker({
-            map,
-            position: [75.7873, 26.9124],
-            popupHtml: '<div style="padding:4px 8px;font-size:12px;font-weight:600">You</div>',
-            popupOptions: { openPopup: true },
-          });
-
-          // Customer pickup marker (red) — before trip starts
-          if (tripPhase === 'navigating' || tripPhase === 'arrived') {
-            new window.mappls.Marker({
-              map,
-              position: [75.85, 26.85],
-              popupHtml: `<div style="padding:4px 8px;font-size:12px;font-weight:600">${activeTrip?.customerName ?? 'Pickup'}</div>`,
-              popupOptions: { openPopup: false },
-            });
-          }
-
-          // Drop marker (green) — after trip starts
-          if (tripPhase === 'started' || tripPhase === 'completed') {
-            new window.mappls.Marker({
-              map,
-              position: [75.90, 26.95],
-              popupHtml: `<div style="padding:4px 8px;font-size:12px;font-weight:600">Drop: ${activeTrip?.drop ?? ''}</div>`,
-              popupOptions: { openPopup: false },
-            });
-          }
-        });
-      } catch (e) {
-        console.error('Map init error:', e);
-        setTimeout(tryInit, 500);
-      }
-    };
-
-    const timer = setTimeout(tryInit, 800);
-    return () => clearTimeout(timer);
-  }, [screen, tripPhase, activeTrip]);
+  const [driverPosition, setDriverPosition] = useState<{ lat: number; lng: number; updatedAt: string } | null>(null);
+  const lastPublishedLocationRef = useRef<{ lat: number; lng: number; publishedAt: number } | null>(null);
+  const lastSyncedStatusRef = useRef<string | null>(null);
 
   const { data: fetchedProfile } = useMyDriverProfile();
   const myProfile = driver ?? fetchedProfile;
   const { data: todayHandover, refetch: refetchTodayHandover } = useTodayHandover(myProfile?.id);
   const queryClient = useQueryClient();
+  const { org } = useOrg();
 
   const { data: realTrips = [] } = useQuery({
-    queryKey: ['driver-trips', driver?.id],
+    queryKey: ['driver-trips', myProfile?.id, org?.id],
     queryFn: async () => {
-      if (!driver?.id) return [];
+      if (!myProfile?.id || !org?.id) return [];
       const { data, error } = await supabase
-        .from('bookings table')
+        .from('bookings')
         .select('*')
-        .eq('driver_id', driver.id)
-        .in('status', ['pending', 'confirmed', 'in-progress'])
+        .eq('org_id', org.id)
+        .eq('driver_id', myProfile.id)
+        .in('status', [...trackedBookingStatuses])
         .order('scheduled_at', { ascending: true });
       if (error) throw error;
       return data as SupabaseBooking[];
     },
-    enabled: !!driver?.id,
+    enabled: !!myProfile?.id && !!org?.id,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
-  const displayTrips: ScheduledTrip[] = realTrips.map(bookingToTrip);
+  const queryTrips = realTrips.map(bookingToTrip);
+  const displayTrips: ScheduledTrip[] = [
+    ...queryTrips,
+    ...scheduledTrips.filter(localTrip => !queryTrips.some(queryTrip => queryTrip.id === localTrip.id)),
+  ];
+  const sortedTrips = sortTripsBySchedule(displayTrips);
+  const activeBooking = realTrips.find(trip => trip.status === 'in-progress') ?? null;
+  const readyBooking = realTrips.find(
+    trip => trip.status === 'confirmed' && Boolean(trip.driver_confirmed_at)
+  ) ?? null;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - 6);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekStartIso = weekStart.toISOString();
+  const monthKey = todayKey.slice(0, 7);
+  const todayRevenue = realTrips
+    .filter(trip => trip.payment_confirmed_at?.startsWith(todayKey))
+    .reduce((sum, trip) => sum + (trip.amount_collected ?? trip.fare ?? 0), 0);
+  const weekRevenue = realTrips
+    .filter(trip => trip.payment_confirmed_at && trip.payment_confirmed_at >= weekStartIso)
+    .reduce((sum, trip) => sum + (trip.amount_collected ?? trip.fare ?? 0), 0);
+  const monthRevenue = realTrips
+    .filter(trip => trip.payment_confirmed_at?.startsWith(monthKey))
+    .reduce((sum, trip) => sum + (trip.amount_collected ?? trip.fare ?? 0), 0);
+  const completedTodayCount = realTrips.filter(trip => trip.trip_completed_at?.startsWith(todayKey)).length;
+  const completedWeekCount = realTrips.filter(trip => trip.trip_completed_at && trip.trip_completed_at >= weekStartIso).length;
+  const completedMonthCount = realTrips.filter(trip => trip.trip_completed_at?.startsWith(monthKey)).length;
+  const acceptanceRate = realTrips.length > 0
+    ? Math.round((realTrips.filter(trip => Boolean(trip.driver_confirmed_at)).length / realTrips.length) * 100)
+    : 100;
+  const gpsStatusLabel = !isOnline
+    ? 'Offline'
+    : driverPosition
+      ? `GPS updated ${formatTime(driverPosition.updatedAt)}`
+      : 'Waiting for GPS';
 
   const checkReminders = () => {
     const now = Date.now();
     const sixHr = 6 * 60 * 60 * 1000;
     const oneHr = 60 * 60 * 1000;
-    displayTrips.forEach(trip => {
+    sortedTrips.forEach(trip => {
       if (trip.status !== 'pending_confirm' && trip.status !== 'confirmed') return;
       const tripTime = new Date(trip.scheduledAt).getTime();
       const msUntil = tripTime - now;
@@ -665,98 +851,234 @@ export function DriverApp({ driver }: DriverAppProps) {
     checkReminders();
     const interval = setInterval(checkReminders, 60000);
     return () => clearInterval(interval);
-  }, [displayTrips.length]);
+  }, [sortedTrips]);
 
   useEffect(() => {
-    if (!myProfile?.id) return;
+    if (!myProfile?.id || !org?.id) return;
     const channel = supabase
       .channel('driver-trips')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings table', filter: `driver_id=eq.${myProfile.id}` },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `org_id=eq.${org.id}` },
         (payload) => {
-          const booking = payload.new as any;
-          if (payload.eventType === 'UPDATE' && booking.status === 'confirmed') {
-            const newTrip: ScheduledTrip = {
-              id: `BK-${booking.id}`,
-              customerName: booking.customer_name ?? 'Customer',
-              customerPhone: booking.customer_phone ?? '',
-              pickup: booking.pickup ?? '',
-              drop: booking.drop ?? '',
-              fare: booking.fare ?? 0,
-              distance: '—',
-              scheduledAt: booking.scheduled_at,
-              tripType: booking.trip_type ?? 'city',
-              status: 'pending_confirm',
-            };
-            setScheduledTrips(prev => {
-              const exists = prev.find(t => t.id === newTrip.id);
-              if (exists) return prev;
-              return [newTrip, ...prev];
-            });
-            setAlarmTrip(newTrip);
+          const nextBooking = payload.eventType === 'DELETE' ? null : payload.new as SupabaseBooking;
+          const previousBooking = (payload.old ?? {}) as Partial<SupabaseBooking>;
+          const nextDriverId = nextBooking?.driver_id ?? null;
+          const previousDriverId = previousBooking.driver_id ?? null;
+          const touchesCurrentDriver = nextDriverId === myProfile.id || previousDriverId === myProfile.id;
+
+          if (!touchesCurrentDriver) {
+            return;
           }
+
+          if (payload.eventType === 'DELETE') {
+            const deletedBooking = payload.old as { id?: number };
+            if (deletedBooking?.id != null) {
+              setScheduledTrips(prev => prev.filter(trip => trip.id !== `BK-${deletedBooking.id}`));
+            }
+            return;
+          }
+
+          const booking = nextBooking as SupabaseBooking;
+          const shouldTrackBooking = booking.driver_id === myProfile.id
+            && trackedBookingStatuses.includes(booking.status as (typeof trackedBookingStatuses)[number]);
+
+          if (!shouldTrackBooking) {
+            setScheduledTrips(prev => prev.filter(trip => trip.id !== `BK-${booking.id}`));
+            queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile.id, org.id] });
+            return;
+          }
+
+          if (shouldTrackBooking) {
+            const newTrip = bookingToTrip(booking);
+            setScheduledTrips(prev => {
+              const others = prev.filter(trip => trip.id !== newTrip.id);
+              return sortTripsBySchedule([newTrip, ...others]);
+            });
+
+            if (booking.status === 'confirmed' && !booking.driver_confirmed_at) {
+              setAlarmTrip(newTrip);
+            }
+          }
+
+          queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile.id, org.id] });
         }
       ).subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [myProfile?.id]);
+  }, [myProfile?.id, org?.id, queryClient]);
+
+  useEffect(() => {
+    if (activeBooking) {
+      const nextTrip = bookingToActiveTrip(activeBooking);
+      setActiveTrip(prev =>
+        prev?.id === nextTrip.id &&
+        prev.pickup === nextTrip.pickup &&
+        prev.drop === nextTrip.drop &&
+        prev.fare === nextTrip.fare &&
+        prev.notes === nextTrip.notes
+          ? prev
+          : nextTrip
+      );
+      setTripPhase('started');
+      return;
+    }
+
+    if (!activeTrip && readyBooking) {
+      setActiveTrip(bookingToActiveTrip(readyBooking));
+      setTripPhase('navigating');
+    }
+  }, [activeBooking, activeTrip, readyBooking]);
+
+  useEffect(() => {
+    if (!myProfile?.id) return;
+
+    const desiredStatus = !isOnline
+      ? 'offline'
+      : activeBooking
+        ? 'on-trip'
+        : 'free';
+
+    if (lastSyncedStatusRef.current === desiredStatus) return;
+    lastSyncedStatusRef.current = desiredStatus;
+
+    void (supabase as any)
+      .from('drivers')
+      .update({ status: desiredStatus })
+      .eq('id', myProfile.id)
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      });
+  }, [activeBooking, isOnline, myProfile?.id, queryClient]);
+
+  useEffect(() => {
+    if (!myProfile?.id || !isOnline || !navigator.geolocation) return;
+
+    const publishLocation = async (lat: number, lng: number) => {
+      setDriverPosition({ lat, lng, updatedAt: new Date().toISOString() });
+
+      const lastPublished = lastPublishedLocationRef.current;
+      const movedEnough = !lastPublished
+        || metersBetween(lastPublished, { lat, lng }) >= 30;
+      const waitedEnough = !lastPublished
+        || Date.now() - lastPublished.publishedAt >= 20000;
+
+      if (!movedEnough && !waitedEnough) return;
+
+      lastPublishedLocationRef.current = { lat, lng, publishedAt: Date.now() };
+      await (supabase as any)
+        .from('drivers')
+        .update({
+          location_lat: lat,
+          location_lng: lng,
+        })
+        .eq('id', myProfile.id);
+
+      queryClient.invalidateQueries({ queryKey: ['drivers'] });
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      position => {
+        void publishLocation(position.coords.latitude, position.coords.longitude);
+      },
+      () => {
+        // Keep the last known location and let the driver continue working.
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 10000,
+        timeout: 20000,
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [isOnline, myProfile?.id, queryClient]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      setDriverPosition(null);
+    }
+  }, [isOnline]);
 
   const handleConfirmFromAlarm = () => {
     if (!alarmTrip) return;
     setScheduledTrips(trips => trips.map(t => t.id === alarmTrip.id ? { ...t, status: 'confirmed' } : t));
+    const bookingId = parseInt(alarmTrip.id.replace('BK-', ''), 10);
+    if (!isNaN(bookingId)) handleConfirm(bookingId);
     setAlarmTrip(null);
   };
 
   const handleConfirmTrip = (id: string) => {
     setScheduledTrips(trips => trips.map(t => t.id === id ? { ...t, status: 'confirmed' } : t));
-    const bookingId = parseInt(id.replace('BK-', ''));
+    const bookingId = parseInt(id.replace('BK-', ''), 10);
     if (!isNaN(bookingId)) handleConfirm(bookingId);
   };
 
   const handleConfirm = async (bookingId: number) => {
-    if (!driver?.id) return;
-    await supabase.from('bookings table').update({ status: 'confirmed' }).eq('id', bookingId);
-    await supabase.from('Drivers').update({ status: 'on-trip' }).eq('id', driver.id);
-    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver.id] });
+    if (!myProfile?.id) return;
+    const db = supabase as any;
+    await db.from('bookings').update({ status: 'confirmed', driver_confirmed_at: new Date().toISOString() }).eq('id', bookingId);
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile.id, org?.id] });
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
     queryClient.invalidateQueries({ queryKey: ['drivers'] });
   };
 
   const handleStart = async (bookingId: number) => {
-    if (!driver?.id) return;
-    await supabase.from('bookings table').update({ status: 'in-progress' }).eq('id', bookingId);
-    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver.id] });
+    if (!myProfile?.id) return;
+    setScheduledTrips(trips => sortTripsBySchedule(
+      trips.map(trip => trip.id === `BK-${bookingId}` ? { ...trip, status: 'active' } : trip)
+    ));
+    await (supabase as any).from('drivers').update({ status: 'on-trip' }).eq('id', myProfile.id);
+    await (supabase as any).from('bookings').update({ status: 'in-progress', trip_started_at: new Date().toISOString() }).eq('id', bookingId);
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile.id, org?.id] });
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    queryClient.invalidateQueries({ queryKey: ['drivers'] });
   };
 
   const handleComplete = async (bookingId: number) => {
-    if (!driver?.id) return;
-    await supabase.from('bookings table').update({ status: 'completed' }).eq('id', bookingId);
-    await supabase.from('Drivers').update({ status: 'free' }).eq('id', driver.id);
-    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver.id] });
+    if (!myProfile?.id) return;
+    setScheduledTrips(trips => trips.filter(trip => trip.id !== `BK-${bookingId}`));
+    setBannerTrips(trips => trips.filter(tripId => tripId !== `BK-${bookingId}`));
+    setAlarmTrips(trips => trips.filter(tripId => tripId !== `BK-${bookingId}`));
+    const db = supabase as any;
+    await db.from('bookings').update({ status: 'completed', trip_completed_at: new Date().toISOString() }).eq('id', bookingId);
+    await db.from('drivers').update({ status: 'free' }).eq('id', myProfile.id);
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile.id, org?.id] });
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
     queryClient.invalidateQueries({ queryKey: ['drivers'] });
     const completedTrip = realTrips.find(t => t.id === bookingId);
+    if (completedTrip) {
+      await queueFeedbackMessage(completedTrip, org);
+    }
     setCollectBookingId(bookingId);
     setCollectAmount(String(completedTrip?.fare ?? ''));
+    setCollectMethod(completedTrip?.payment_method === 'upi' ? 'upi' : 'cash');
   };
 
   const handleLogPayment = async () => {
     if (!collectBookingId) return;
     setCollectLoading(true);
-    await supabase.from('bookings table').update({
-      amount_collected: Number(collectAmount),
+    const paidAmount = Number(collectAmount);
+    await (supabase as any).from('bookings').update({
+      amount_collected: paidAmount,
       payment_method: collectMethod,
       payment_confirmed_at: new Date().toISOString(),
     }).eq('id', collectBookingId);
-    queryClient.invalidateQueries({ queryKey: ['driver-trips', driver?.id] });
+    queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile?.id, org?.id] });
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    const paidTrip = realTrips.find(t => t.id === collectBookingId);
+    if (paidTrip) {
+      await queueInvoiceMessage(paidTrip, paidAmount, collectMethod, org);
+    }
     addCollection({
       tripId: `BK-${collectBookingId}`,
-      customerName: realTrips.find(t => t.id === collectBookingId)?.customer_name ?? '',
-      amount: Number(collectAmount),
+      customerName: paidTrip?.customer_name ?? '',
+      amount: paidAmount,
       method: collectMethod,
     });
     setCollectBookingId(null);
     setCollectAmount('');
+    setShowUpiDetails(false);
+    setActiveTrip(null);
+    setScreen('home');
+    setTripPhase('navigating');
     setCollectLoading(false);
   };
 
@@ -771,11 +1093,12 @@ export function DriverApp({ driver }: DriverAppProps) {
   const deleteExpense = (id: string) => setExpenses(prev => prev.filter(e => e.id !== id));
 
   const handleHandOver = async (amount: number) => {
-    if (!myProfile) return;
+    if (!myProfile || !org) return;
     setHandoverLoading(true);
-    const { error } = await supabase
-      .from('cash_handovers')
-      .insert({ driver_id: myProfile.id, amount: Math.round(amount * 100) / 100, handed_over_at: new Date().toISOString() });
+    const db = supabase as any;
+    const { error } = await db
+      .from('cash_handovers_v2')
+      .insert({ org_id: org.id, driver_id: myProfile.id, amount: Math.round(amount * 100) / 100, handed_over_at: new Date().toISOString() });
     if (!error) {
       await queryClient.invalidateQueries({ queryKey: ['cash-handovers'] });
       refetchTodayHandover();
@@ -784,7 +1107,7 @@ export function DriverApp({ driver }: DriverAppProps) {
   };
 
   const pendingSyncCount = [...expenses, ...collections].filter(e => e.isOffline).length;
-  const unconfirmedTrips = displayTrips.filter(t => t.status === 'pending_confirm').length;
+  const unconfirmedTrips = sortedTrips.filter(t => t.status === 'pending_confirm').length;
 
 
   const greeting = () => {
@@ -799,14 +1122,14 @@ export function DriverApp({ driver }: DriverAppProps) {
 
       {/* 6-hour banner reminders */}
       {bannerTrips.map(tripId => {
-        const trip = displayTrips.find(t => t.id === tripId);
+        const trip = sortedTrips.find(t => t.id === tripId);
         if (!trip) return null;
         return (
           <div key={tripId} className="mx-4 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-bold text-blue-700">Trip reminder</p>
-              <p className="text-xs text-blue-600">{trip.customerName} · {new Date(trip.scheduledAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
-              <p className="text-xs text-blue-600">{trip.pickup} → {trip.drop}</p>
+              <p className="text-xs text-blue-600">{trip.customerName} Â· {new Date(trip.scheduledAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+              <p className="text-xs text-blue-600">{trip.pickup} â†’ {trip.drop}</p>
             </div>
             <button onClick={() => { localStorage.setItem('dismissed_6hr_' + tripId, 'true'); setBannerTrips(prev => prev.filter(id => id !== tripId)); }} className="text-blue-400 hover:text-blue-600">
               <X className="h-4 w-4" />
@@ -817,7 +1140,7 @@ export function DriverApp({ driver }: DriverAppProps) {
 
       {/* 1-hour alarm overlays */}
       {alarmTrips.map(tripId => {
-        const trip = displayTrips.find(t => t.id === tripId);
+        const trip = sortedTrips.find(t => t.id === tripId);
         if (!trip) return null;
         return (
           <div key={tripId} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -825,8 +1148,8 @@ export function DriverApp({ driver }: DriverAppProps) {
               <AlarmClock className="h-16 w-16 text-destructive mx-auto mb-4 animate-bounce" />
               <h2 className="text-xl font-bold text-destructive mb-1">TRIP IN 1 HOUR</h2>
               <p className="font-semibold mb-1">{trip.customerName}</p>
-              <p className="text-sm text-muted-foreground mb-1">{trip.pickup} → {trip.drop}</p>
-              <p className="text-lg font-bold mb-6">₹{trip.fare.toLocaleString('en-IN')}</p>
+              <p className="text-sm text-muted-foreground mb-1">{trip.pickup} â†’ {trip.drop}</p>
+              <p className="text-lg font-bold mb-6">â‚¹{trip.fare.toLocaleString('en-IN')}</p>
               <Button className="w-full bg-secondary text-secondary-foreground" onClick={() => { localStorage.setItem('dismissed_1hr_' + tripId, 'true'); setAlarmTrips(prev => prev.filter(id => id !== tripId)); }}>
                 Got it, I'm ready
               </Button>
@@ -840,23 +1163,72 @@ export function DriverApp({ driver }: DriverAppProps) {
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="bg-card rounded-2xl p-6 mx-6 max-w-sm w-full">
             <h2 className="text-lg font-bold mb-1">Log payment collected</h2>
-            <p className="text-sm text-muted-foreground mb-4">Fare was ₹{realTrips.find(t => t.id === collectBookingId)?.fare?.toLocaleString('en-IN') ?? collectAmount}</p>
+            <p className="text-sm text-muted-foreground mb-4">Fare was â‚¹{realTrips.find(t => t.id === collectBookingId)?.fare?.toLocaleString('en-IN') ?? collectAmount}</p>
             <input type="number" className="w-full border border-border rounded-xl px-4 py-3 text-base mb-4 bg-background focus:outline-none focus:ring-2 focus:ring-ring" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} placeholder="Amount collected" />
             <div className="flex gap-2 mb-5">
               {(['cash', 'upi'] as const).map(m => (
                 <button key={m} onClick={() => setCollectMethod(m)} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${collectMethod === m ? 'bg-secondary text-secondary-foreground border-secondary' : 'bg-card text-muted-foreground border-border hover:border-muted-foreground/40'}`}>
-                  {m === 'cash' ? '💵 Cash' : '📱 UPI'}
+                  {m === 'cash' ? 'ðŸ’µ Cash' : 'ðŸ“± UPI'}
                 </button>
               ))}
             </div>
+            {collectMethod === 'upi' && (
+              <div className="mb-4 space-y-2">
+                {(org?.upi_id || org?.upi_qr_url) ? (
+                  <button
+                    onClick={() => setShowUpiDetails(true)}
+                    className="w-full py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-sm font-semibold"
+                  >
+                    Show UPI QR / ID
+                  </button>
+                ) : (
+                  <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                    Configure company UPI ID or QR in the organisation settings to enable one-tap UPI collection help.
+                  </p>
+                )}
+              </div>
+            )}
             <Button className="w-full" disabled={collectLoading || !collectAmount} onClick={handleLogPayment}>
-              {collectLoading ? 'Saving…' : 'Log Payment'}
+              {collectLoading ? 'Savingâ€¦' : 'Log Payment'}
             </Button>
           </div>
         </div>
       )}
 
-      {/* ── Trip Detail Sheet (BUG-05) ── */}
+      {showUpiDetails && collectMethod === 'upi' && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 55, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="bg-card rounded-2xl p-6 mx-6 max-w-sm w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Company UPI</h2>
+              <button onClick={() => setShowUpiDetails(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {org?.upi_qr_url && (
+              <img src={org.upi_qr_url} alt="Company UPI QR" className="mx-auto h-56 w-56 rounded-2xl border border-border bg-white object-contain p-3" />
+            )}
+            {org?.upi_id && (
+              <div className="mt-4 rounded-xl border border-border bg-background px-4 py-3">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">UPI ID</p>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold">{org.upi_id}</span>
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(org.upi_id ?? '')}
+                    className="text-xs font-semibold text-secondary"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              Show this screen to the customer so they can scan the QR or enter the UPI ID directly.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* â”€â”€ Trip Detail Sheet (BUG-05) â”€â”€ */}
       {detailTrip && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
@@ -888,7 +1260,7 @@ export function DriverApp({ driver }: DriverAppProps) {
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="text-center p-3 bg-gray-800 rounded-xl">
-                <div className="text-lg font-black text-white">₹{detailTrip.fare.toLocaleString()}</div>
+                <div className="text-lg font-black text-white">â‚¹{detailTrip.fare.toLocaleString()}</div>
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">Fare</div>
               </div>
               <div className="text-center p-3 bg-gray-800 rounded-xl">
@@ -902,7 +1274,7 @@ export function DriverApp({ driver }: DriverAppProps) {
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-400 px-1">
               <AlarmClock className="h-4 w-4" />
-              <span>{formatDate(detailTrip.scheduledAt)} · {formatTime(detailTrip.scheduledAt)}</span>
+              <span>{formatDate(detailTrip.scheduledAt)} Â· {formatTime(detailTrip.scheduledAt)}</span>
             </div>
             {detailTrip.customerPhone && (
               <div className="flex gap-3">
@@ -924,6 +1296,12 @@ export function DriverApp({ driver }: DriverAppProps) {
                 </a>
               </div>
             )}
+            {detailTrip.notes && (
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-blue-300 mb-1">Instructions</p>
+                <p className="text-sm text-blue-100">{detailTrip.notes}</p>
+              </div>
+            )}
             <div className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold ${detailTrip.status === 'confirmed' ? 'bg-green-500/10 border border-green-500/20 text-green-300' : 'bg-orange-500/10 border border-orange-500/20 text-orange-300'}`}>
               {detailTrip.status === 'confirmed' ? <><CheckCircle className="h-4 w-4" /> Confirmed</> : <><Clock className="h-4 w-4" /> Awaiting Confirmation</>}
             </div>
@@ -938,6 +1316,7 @@ export function DriverApp({ driver }: DriverAppProps) {
                     drop: detailTrip.drop,
                     fare: detailTrip.fare,
                     distance: detailTrip.distance,
+                    notes: detailTrip.notes,
                     tripType: detailTrip.tripType,
                     eta: getHoursUntil(detailTrip.scheduledAt),
                   });
@@ -967,13 +1346,16 @@ export function DriverApp({ driver }: DriverAppProps) {
       )}
 
       {/* HEADER */}
-      <div className="bg-gray-900 border-b border-gray-800 px-5 pt-10 pb-5">
+      <div className="kinetic-gradient px-5 pt-10 pb-5">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-xs text-gray-400 font-medium">{greeting()}</p>
-              <h1 className="text-xl font-black text-white">{myProfile?.name ?? 'Driver'}</h1>
-              <p className="text-xs text-gray-500">{myProfile?.plate_number ?? '—'} · {myProfile?.vehicle_model ?? '—'}</p>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Zap className="h-3.5 w-3.5 text-white/70" />
+                <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest">FleetOs</span>
+              </div>
+              <h1 className="text-xl font-black text-white font-display">{myProfile?.name ?? 'Driver'}</h1>
+              <p className="text-xs text-white/60">{myProfile?.plate_number ?? 'Ready'} - {myProfile?.vehicle_model ?? 'Vehicle pending'}</p>
             </div>
             <div className="flex items-center gap-3">
               {!isOnline && pendingSyncCount > 0 && (
@@ -1000,11 +1382,11 @@ export function DriverApp({ driver }: DriverAppProps) {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2.5">
-            <div className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700"><p className="text-lg font-black text-white">₹{earningsData.today.toLocaleString()}</p><p className="text-[10px] text-gray-400 uppercase tracking-wider">Today</p></div>
-            <div className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700"><p className="text-lg font-black text-white">{earningsData.trips.today}</p><p className="text-[10px] text-gray-400 uppercase tracking-wider">Trips</p></div>
-            <div className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700"><p className="text-lg font-black text-white">⭐ {earningsData.rating}</p><p className="text-[10px] text-gray-400 uppercase tracking-wider">Rating</p></div>
-          </div>
+            <div className="grid grid-cols-3 gap-2.5">
+            <div className="bg-white/15 rounded-xl p-3 text-center"><p className="text-lg font-black text-white font-display">{formatCurrency(todayRevenue)}</p><p className="text-[10px] text-white/60 uppercase tracking-wider">Collected</p></div>
+            <div className="bg-white/15 rounded-xl p-3 text-center"><p className="text-lg font-black text-white font-display">{completedTodayCount}</p><p className="text-[10px] text-white/60 uppercase tracking-wider">Completed</p></div>
+            <div className="bg-white/15 rounded-xl p-3 text-center"><p className="text-sm font-black text-white font-display">{gpsStatusLabel}</p><p className="text-[10px] text-white/60 uppercase tracking-wider">GPS</p></div>
+            </div>
         </div>
       </div>
 
@@ -1041,7 +1423,7 @@ export function DriverApp({ driver }: DriverAppProps) {
                 <div className="flex-1"><p className="text-sm font-bold text-white">Trip Alarm Demo</p><p className="text-xs text-gray-400">Test the loud notification sound</p></div>
                 <button
                   onClick={() => {
-                    if (displayTrips.length > 0) { setAlarmTrip(displayTrips[0]); }
+                    if (sortedTrips.length > 0) { setAlarmTrip(sortedTrips[0]); }
                     else { setAlarmTrip({ id: 'demo', customerName: 'Demo Customer', customerPhone: '', pickup: 'C-Scheme, Jaipur', drop: 'Malviya Nagar, Jaipur', fare: 180, distance: '6.2 km', scheduledAt: new Date(Date.now() + 30 * 60000).toISOString(), tripType: 'city', status: 'pending_confirm' }); }
                   }}
                   className="text-xs px-3 py-2 rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/30 font-bold active:scale-95 transition-all"
@@ -1055,11 +1437,11 @@ export function DriverApp({ driver }: DriverAppProps) {
                 <div className="text-sm font-bold text-white flex items-center gap-2"><Calendar className="h-4 w-4 text-blue-400" /> Upcoming Trips</div>
                 {unconfirmedTrips > 0 && <span className="text-xs bg-orange-500/20 text-orange-300 border border-orange-500/30 px-2 py-0.5 rounded-full font-bold">{unconfirmedTrips} need confirmation</span>}
               </div>
-              {displayTrips.length === 0 ? (
+              {sortedTrips.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-6">No trips assigned yet</p>
               ) : (
                 <div className="space-y-3">
-                  {displayTrips.map(trip => (
+                  {sortedTrips.map(trip => (
                     <ScheduledTripCard key={trip.id} trip={trip} isOffline={!isOnline} onConfirm={handleConfirmTrip} onTap={setDetailTrip} />
                   ))}
                 </div>
@@ -1081,10 +1463,10 @@ export function DriverApp({ driver }: DriverAppProps) {
             {activeTrip && <Card className="p-4 bg-gray-900 border-gray-800">
               <h3 className="text-sm font-bold mb-3 text-white">Navigation</h3>
               <div className="h-44 bg-gray-800 rounded-xl mb-3 relative border border-gray-700">
-                <div id="map" className="h-full w-full rounded-xl" />
+                <DriverTripMap activeTrip={activeTrip} tripPhase={tripPhase} driverPosition={driverPosition} />
                 <div className="absolute top-3 left-3 bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-700 text-xs font-bold text-white z-10">
                   <Navigation className="h-3 w-3 inline mr-1 text-blue-400" />
-                  {tripPhase === 'navigating' ? 'Head to pickup — 4 min' : tripPhase === 'arrived' ? 'At pickup location' : '3.2 km remaining'}
+                  {tripPhase === 'navigating' ? 'Head to pickup' : tripPhase === 'arrived' ? 'At pickup location' : tripPhase === 'started' ? 'Heading to drop' : 'Trip closed'}
                 </div>
               </div>
               <div className="space-y-2 mb-4">
@@ -1097,16 +1479,22 @@ export function DriverApp({ driver }: DriverAppProps) {
                     <p className="text-sm font-bold text-white">{activeTrip?.customerName}</p>
                     <p className="text-xs text-gray-400 flex items-center gap-1"><Shield className="h-3 w-3 text-blue-400" /> Number protected</p>
                   </div>
-                  <div className="text-right"><p className="text-lg font-black text-white">₹{activeTrip?.fare}</p><p className="text-xs text-gray-400">{activeTrip.distance}</p></div>
+                  <div className="text-right"><p className="text-lg font-black text-white">{formatCurrency(activeTrip?.fare ?? 0)}</p><p className="text-xs text-gray-400">{activeTrip.distance}</p></div>
                 </div>
-                <MaskedCallButton customerName={activeTrip?.customerName} tripId={activeTrip.id} />
+                {activeTrip?.notes && (
+                  <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-blue-300 mb-1">Instructions</p>
+                    <p className="text-sm text-blue-100">{activeTrip.notes}</p>
+                  </div>
+                )}
+                <ContactActions customerName={activeTrip.customerName} customerPhone={activeTrip.customerPhone} />
               </div>
               {tripPhase === 'navigating' && <button onClick={() => setTripPhase('arrived')} className="w-full py-3.5 rounded-xl bg-blue-500 hover:bg-blue-400 active:scale-95 transition-all text-white font-bold">I've Arrived at Pickup</button>}
 {tripPhase === 'arrived' && (
                 <div className="space-y-3">
-                  {(driver as any)?.is_temporary && (
+                  {(myProfile as any)?.is_temporary && (
                     <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl">
-                      <p className="text-xs font-bold text-orange-300 mb-2">📸 Odometer photo required</p>
+                      <p className="text-xs font-bold text-orange-300 mb-2">ðŸ“¸ Odometer photo required</p>
                       <label className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs font-bold cursor-pointer active:scale-95 transition-all">
                         <Camera className="h-4 w-4" />
                         Take Odometer Photo (Start)
@@ -1117,8 +1505,8 @@ export function DriverApp({ driver }: DriverAppProps) {
                           className="hidden"
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
-                            if (!file || !driver?.id) return;
-                            const fileName = `odometer_start_${driver.id}_${Date.now()}.jpg`;
+                            if (!file || !myProfile?.id) return;
+                            const fileName = `odometer_start_${myProfile.id}_${Date.now()}.jpg`;
                             const { data: uploadData } = await supabase.storage
                               .from('odometer-photos')
                               .upload(fileName, file, { upsert: true });
@@ -1126,8 +1514,8 @@ export function DriverApp({ driver }: DriverAppProps) {
                               const { data: urlData } = supabase.storage
                                 .from('odometer-photos')
                                 .getPublicUrl(fileName);
-                              await supabase.from('Drivers').update({ odometer_start_photo: urlData.publicUrl }).eq('id', driver.id);
-                              toast('Start odometer photo saved ✓');
+                              await (supabase as any).from('drivers').update({ odometer_start_photo: urlData.publicUrl }).eq('id', myProfile.id);
+                              toast('Start odometer photo saved âœ“');
                             }
                           }}
                         />
@@ -1137,7 +1525,7 @@ export function DriverApp({ driver }: DriverAppProps) {
                   <button
                     onClick={() => {
                       setTripPhase('started');
-                      const t = displayTrips.find(t => t.status === 'confirmed');
+                      const t = sortedTrips.find(t => t.status === 'confirmed');
                       if (t) { const id = parseInt(t.id.replace('BK-', '')); if (!isNaN(id)) handleStart(id); }
                     }}
                     className="w-full py-3.5 rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-white font-bold"
@@ -1148,9 +1536,9 @@ export function DriverApp({ driver }: DriverAppProps) {
                 )}
 {tripPhase === 'started' && (
                 <div className="space-y-3">
-                  {(driver as any)?.is_temporary && (
+                  {(myProfile as any)?.is_temporary && (
                     <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl">
-                      <p className="text-xs font-bold text-orange-300 mb-2">📸 Odometer photo required before ending</p>
+                      <p className="text-xs font-bold text-orange-300 mb-2">ðŸ“¸ Odometer photo required before ending</p>
                       <label className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs font-bold cursor-pointer active:scale-95 transition-all">
                         <Camera className="h-4 w-4" />
                         Take Odometer Photo (End)
@@ -1161,8 +1549,8 @@ export function DriverApp({ driver }: DriverAppProps) {
                           className="hidden"
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
-                            if (!file || !driver?.id) return;
-                            const fileName = `odometer_end_${driver.id}_${Date.now()}.jpg`;
+                            if (!file || !myProfile?.id) return;
+                            const fileName = `odometer_end_${myProfile.id}_${Date.now()}.jpg`;
                             const { data: uploadData } = await supabase.storage
                               .from('odometer-photos')
                               .upload(fileName, file, { upsert: true });
@@ -1170,8 +1558,8 @@ export function DriverApp({ driver }: DriverAppProps) {
                               const { data: urlData } = supabase.storage
                                 .from('odometer-photos')
                                 .getPublicUrl(fileName);
-                              await supabase.from('Drivers').update({ odometer_end_photo: urlData.publicUrl }).eq('id', driver.id);
-                              toast('End odometer photo saved ✓');
+                              await (supabase as any).from('drivers').update({ odometer_end_photo: urlData.publicUrl }).eq('id', myProfile.id);
+                              toast('End odometer photo saved âœ“');
                             }
                           }}
                         />
@@ -1181,19 +1569,19 @@ export function DriverApp({ driver }: DriverAppProps) {
                   <button
                     onClick={() => {
                       setTripPhase('completed');
-                      const t = displayTrips.find(t => t.status === 'active');
+                      const t = sortedTrips.find(t => t.status === 'active');
                       if (t) { const id = parseInt(t.id.replace('BK-', '')); if (!isNaN(id)) handleComplete(id); }
                     }}
                     className="w-full py-3.5 rounded-xl bg-red-500 hover:bg-red-400 active:scale-95 transition-all text-white font-bold"
                   >
-                    End Trip · ₹{activeTrip?.fare}
+                    End Trip · {formatCurrency(activeTrip?.fare ?? 0)}
                   </button>
                 </div>
               )}              {tripPhase === 'completed' && (
                 <div className="text-center py-4">
                   <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-2" />
                   <p className="font-black text-lg text-white">Trip Completed!</p>
-                  <p className="text-sm text-gray-400 mb-3">Earned ₹{activeTrip?.fare} · Log your expenses</p>
+                  <p className="text-sm text-gray-400 mb-3">Collected {formatCurrency(activeTrip?.fare ?? 0)}. Log any cash or trip expenses next.</p>
                   <div className="flex gap-2">
                     <button onClick={() => { setTripPhase('navigating'); setScreen('home'); }} className="flex-1 py-2.5 rounded-xl bg-gray-700 text-gray-200 text-sm font-bold active:scale-95 transition-all">Back to Home</button>
                     <button onClick={() => { setTripPhase('navigating'); setScreen('expenses'); }} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold active:scale-95 transition-all">Log Expenses</button>
@@ -1213,9 +1601,9 @@ export function DriverApp({ driver }: DriverAppProps) {
             <Card className="p-5 bg-gray-900 border-gray-800">
               <h3 className="text-sm font-bold mb-4 text-white">Earnings Overview</h3>
               <div className="grid grid-cols-3 gap-3">
-                {[{ label: 'Today', amount: earningsData.today, trips: earningsData.trips.today }, { label: 'This Week', amount: earningsData.week, trips: earningsData.trips.week }, { label: 'This Month', amount: earningsData.month, trips: earningsData.trips.month }].map(period => (
+                {[{ label: 'Today', amount: todayRevenue, trips: completedTodayCount }, { label: 'This Week', amount: weekRevenue, trips: completedWeekCount }, { label: 'This Month', amount: monthRevenue, trips: completedMonthCount }].map(period => (
                   <div key={period.label} className="text-center p-3 bg-gray-800 rounded-xl border border-gray-700">
-                    <p className="text-lg font-black text-white">₹{period.amount.toLocaleString()}</p>
+                    <p className="text-lg font-black text-white">{formatCurrency(period.amount)}</p>
                     <p className="text-[10px] text-gray-400 uppercase">{period.label}</p>
                     <p className="text-xs text-gray-500 mt-1">{period.trips} trips</p>
                   </div>
@@ -1225,8 +1613,8 @@ export function DriverApp({ driver }: DriverAppProps) {
             <Card className="p-5 bg-gray-900 border-gray-800">
               <h3 className="text-sm font-bold mb-3 text-white">Performance</h3>
               <div className="space-y-4">
-                <div><div className="flex justify-between text-sm mb-1"><span className="text-gray-400">Acceptance Rate</span><span className="font-bold text-white">{earningsData.acceptance}%</span></div><Progress value={earningsData.acceptance} className="h-2" /></div>
-                <div><div className="flex justify-between text-sm mb-1"><span className="text-gray-400">Rating</span><span className="font-bold text-white">⭐ {earningsData.rating} / 5.0</span></div><Progress value={earningsData.rating * 20} className="h-2" /></div>
+                <div><div className="flex justify-between text-sm mb-1"><span className="text-gray-400">Acceptance Rate</span><span className="font-bold text-white">{acceptanceRate}%</span></div><Progress value={acceptanceRate} className="h-2" /></div>
+                <div><div className="flex justify-between text-sm mb-1"><span className="text-gray-400">GPS Visibility</span><span className="font-bold text-white">{driverPosition ? 'Live' : isOnline ? 'Pending' : 'Offline'}</span></div><Progress value={driverPosition ? 100 : isOnline ? 45 : 10} className="h-2" /></div>
               </div>
             </Card>
           </div>
@@ -1259,3 +1647,4 @@ export function DriverApp({ driver }: DriverAppProps) {
     </div>
   );
 }
+

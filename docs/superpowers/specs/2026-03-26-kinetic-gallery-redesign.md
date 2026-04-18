@@ -18,7 +18,7 @@ Replace the current FleetOs UI with the "Kinetic Gallery" design system across a
 | 1 | Design tokens | `src/index.css`, `tailwind.config.ts`, `index.html` |
 | 2 | Shell layout | New `AdminShell.tsx`, `Sidebar.tsx`, `TopHeader.tsx`, update `Index.tsx` |
 | 3 | Admin dashboard | `AdminDashboard.tsx`, new `BentoStats.tsx`, new `DriverFleetList.tsx` |
-| 4 | Mappls live map | New `MapPanel.tsx`, new `useDriverLocations.ts` |
+| 4 | Live map panel | New `MapPanel.tsx`, new `useDriverLocations.ts` |
 | 5 | Driver app | `DriverDashboard.tsx` and driver component screens |
 | 6 | Customer + Login | `BookingForm.tsx`, `LoginPage.tsx`, `DriverLoginPage.tsx` |
 
@@ -167,24 +167,10 @@ Each card: `bg-card p-8 rounded-[2rem] shadow-xl shadow-slate-200/40 hover:scale
 
 ---
 
-## Sub-project 4: Mappls Live Map
+## Sub-project 4: Live Map Panel
 
 ### SDK loading
-The Mappls SDK key appears in the URL path, so it cannot use a plain `<script>` tag with a static URL at build time without exposing the key. Use **runtime JS injection** in `MapPanel.tsx`:
-
-```ts
-useEffect(() => {
-  const key = import.meta.env.VITE_MAPPLS_API_KEY;
-  const script = document.createElement('script');
-  script.src = `https://apis.mappls.com/advancedmaps/v1/${key}/map_load?v=3.0`;
-  script.async = true;
-  script.onload = () => initMap(); // initialize Mappls map inside initMap()
-  document.head.appendChild(script);
-  return () => { document.head.removeChild(script); };
-}, []);
-```
-
-`VITE_MAPPLS_API_KEY` stored in `.env`. The SDK exposes `window.mappls` after `onload`.
+The live map now uses runtime loading through the shared `src/lib/olaMaps.ts` client and reads `VITE_OLA_MAPS_API_KEY` from local environment variables.
 
 ### `useDriverLocations.ts`
 Custom hook that polls `Drivers` table every **15 seconds** using React Query `refetchInterval`. Returns `Array<{ id, name, location_lat, location_lng, status, current_trip }>`.
@@ -197,7 +183,7 @@ Then in JS, build a `Map<driverId, booking>` from result 2 and attach `current_t
 
 ### `MapPanel.tsx`
 - `col-span-7 bg-card rounded-[2.5rem] overflow-hidden shadow-2xl min-h-[500px] relative`
-- Initializes Mappls map on mount via `useEffect` — checks `window.mappls` is ready before init
+- Initializes the current map provider on mount via the shared loader hook
 - Center: India `[20.5937, 78.9629]`, zoom 5
 - Re-centers to the fleet's bounding box once driver data loads
 
@@ -205,11 +191,11 @@ Then in JS, build a `Map<driverId, booking>` from result 2 and attach `current_t
 - `status = 'on-trip'`: orange pulsing custom marker (`#f9a329` dot with `ring-8 ring-primary/20 animate-pulse`)
 - `status = 'free'`: green static dot (`#22c55e`)
 - `status = 'offline'`: grey dot, no animation
-- Hover tooltip (Mappls `popup`): `<strong>{name}</strong><br/>{pickup} → {drop}` — trip fields from `current_trip`; if no active trip, shows "Available"
+- Hover tooltip: `<strong>{name}</strong><br/>{pickup} → {drop}` — trip fields from `current_trip`; if no active trip, shows "Available"
 
 **Booking markers** (from `useBookings()` filtered to `status = 'pending'`):
 - Bookings store `pickup` and `drop` as address strings — **no geocoding in this spec**
-- Booking pins are **deferred** to a follow-up spec pending a geocoding strategy (Mappls Geocoding API or lat/lng columns on bookings table)
+- Booking pins are **deferred** to a follow-up spec pending a geocoding strategy (provider geocoding API or lat/lng columns on bookings table)
 - Map panel renders driver markers only in this phase
 
 ### Driver location updates (Sub-project 5 dependency)
@@ -277,3 +263,4 @@ Same card treatment as `LoginPage`. No logic changes.
 - Playwright P0 tests
 - Supabase table names (`"bookings table"`, `"Drivers"`)
 - Dark mode CSS vars (update in a follow-up pass)
+

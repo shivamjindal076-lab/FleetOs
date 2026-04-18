@@ -1,26 +1,31 @@
-declare global {
-  interface Window {
-    mappls: any;
-  }
-}
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus, AlertTriangle } from 'lucide-react';
+import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus, AlertTriangle, FileText } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { useDrivers, useBookings, useTodayCashHandovers, useDriverCollections, tripTypeIcons, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';import { DispatchEngine } from './DispatchEngine';
+import { useDrivers, useBookings, useTodayCashHandovers, useDriverCollections, tripTypeIcons, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
+import { useOrg } from '@/hooks/useOrg';
+import { DispatchEngine } from './DispatchEngine';
 import { PaymentSummary } from './PaymentSummary';
 import { CollectionsHistory } from './CollectionsHistory';
 import { NewBookingSheet } from './NewBookingSheet';
+import { BentoStats } from './BentoStats';
+import { DriverFleetList } from './DriverFleetList';
+import { MapPanel } from './MapPanel';
+import type { ActiveTab } from './AdminShell';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 type Tab = 'today' | 'fleet' | 'collections';
+
+interface AdminDashboardProps {
+  activeSection?: ActiveTab;
+}
 
 const statusColors: Record<string, string> = {
   free: 'bg-success',
@@ -34,6 +39,24 @@ const bookingStatusStyles: Record<string, string> = {
   'in-progress': 'bg-secondary/10 text-secondary-foreground border-secondary/30',
 };
 
+function parseBookingDate(iso: string | null | undefined) {
+  if (!iso) return null;
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isSameCalendarDay(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 const getPaymentBadge = (booking: SupabaseBooking) => {
   if (!booking.payment_confirmed_at) return 'pending';
   const collected = booking.amount_collected ?? 0;
@@ -45,20 +68,23 @@ const getPaymentBadge = (booking: SupabaseBooking) => {
 function PendingHandovers() {
   const queryClient = useQueryClient();
   const { data: drivers = [] } = useDrivers();
+  const { org } = useOrg();
   const [handovers, setHandovers] = useState<any[]>([]);
 
   useEffect(() => {
+    if (!org) return;
     const fetch = async () => {
       const client = supabase as any;
       const res = await client
-        .from('cash_handovers')
+        .from('cash_handovers_v2')
         .select('*')
+        .eq('org_id', org.id)
         .eq('admin_approved', false)
         .order('handed_over_at', { ascending: false });
       setHandovers(res.data || []);
     };
     fetch();
-  }, []);
+  }, [org]);
 
   const getDriverName = (id: number) => drivers.find(d => d.id === id)?.name ?? 'Unknown';
 
@@ -84,7 +110,7 @@ function PendingHandovers() {
                 size="sm"
                 className="bg-success text-success-foreground hover:bg-success/90 rounded-lg text-xs"
                 onClick={async () => {
-                  await (supabase.from('cash_handovers' as any) as any)
+                  await ((supabase as any).from('cash_handovers_v2'))
                     .update({ admin_approved: true })
                     .eq('id', h.id);
                   setHandovers(prev => prev.filter(x => x.id !== h.id));
@@ -99,7 +125,7 @@ function PendingHandovers() {
                 variant="outline"
                 className="border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs"
                 onClick={async () => {
-                  await (supabase.from('cash_handovers' as any) as any)
+                  await ((supabase as any).from('cash_handovers_v2'))
                     .update({ admin_notes: 'Flagged for review' })
                     .eq('id', h.id);
                   setHandovers(prev => prev.filter(x => x.id !== h.id));
@@ -163,7 +189,7 @@ function DriverCollectionPanel({ driverId, period }: { driverId: number; period:
     </div>
   );
 }
-export function AdminDashboard() {
+export function AdminDashboard({ activeSection = 'dashboard' }: AdminDashboardProps) {
   const [tab, setTab] = useState<Tab>('today');
   const [dispatchBooking, setDispatchBooking] = useState<SupabaseBooking | null>(null);
   const [showNewBooking, setShowNewBooking] = useState(false);
@@ -175,9 +201,13 @@ export function AdminDashboard() {
   const [vehicleSelections, setVehicleSelections] = useState<Record<number, string>>({});
   const [approvalLoading, setApprovalLoading] = useState<Record<number, boolean>>({});
   const [detailBooking, setDetailBooking] = useState<SupabaseBooking | null>(null);
-const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
+  const [notesBooking, setNotesBooking] = useState<SupabaseBooking | null>(null);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
   const [collectionPeriod, setCollectionPeriod] = useState<'day' | 'week' | 'month'>('day');
-  const [collectionDriverId, setCollectionDriverId] = useState<number | null>(null);  const queryClient = useQueryClient();
+  const [collectionDriverId, setCollectionDriverId] = useState<number | null>(null);
+  const queryClient = useQueryClient();
 
   const openDriverInMaps = (driver: any) => {
     if (!driver.location_lat || !driver.location_lng) return;
@@ -197,6 +227,17 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
   const { data: bookings = [], isLoading: bookingsLoading } = useBookings();
   const { data: todayHandovers = [] } = useTodayCashHandovers();
   const todayDate = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const nextWeek = addDays(now, 7);
+
+  const updateBookingState = (bookingId: number, patch: Partial<SupabaseBooking>) => {
+    queryClient.setQueriesData({ queryKey: ['bookings'] }, (current: SupabaseBooking[] | undefined) =>
+      current?.map(booking => booking.id === bookingId ? { ...booking, ...patch } : booking) ?? current
+    );
+    setDetailBooking(previous => previous?.id === bookingId ? { ...previous, ...patch } : previous);
+    setDispatchBooking(previous => previous?.id === bookingId ? { ...previous, ...patch } : previous);
+  };
+
   const getDriverCashToday = (driverId: number) =>
     bookings.filter(
       b => b.driver_id === driverId &&
@@ -209,11 +250,35 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
   const offlineCount = drivers.filter(d => d.status === 'offline').length;
   const pendingDrivers = drivers.filter(d => d.status === 'pending_approval');
   const pendingBookings = bookings.filter(b => b.status === 'pending');
-  const scheduledToday = bookings.filter(b => b.scheduled_at && b.status !== 'pending');
-  const today = new Date().toISOString().split('T')[0];
-  const upcomingBookings = bookings.filter(b => b.scheduled_at && b.scheduled_at > today);
+  const scheduledToday = bookings.filter((booking) => {
+    const scheduledDate = parseBookingDate(booking.scheduled_at);
+    if (!scheduledDate || booking.status === 'pending' || booking.status === 'completed') return false;
+    return isSameCalendarDay(scheduledDate, now);
+  });
+  const upcomingBookings = bookings.filter((booking) => {
+    const scheduledDate = parseBookingDate(booking.scheduled_at);
+    if (!scheduledDate || booking.status === 'pending' || booking.status === 'completed') return false;
+    return scheduledDate > now && scheduledDate <= nextWeek && !isSameCalendarDay(scheduledDate, now);
+  });
 
   const isLoading = driversLoading || bookingsLoading;
+  const showOverview = activeSection === 'dashboard';
+
+  useEffect(() => {
+    if (activeSection === 'drivers') {
+      setTab('fleet');
+      return;
+    }
+
+    if (activeSection === 'collections') {
+      setTab('collections');
+      return;
+    }
+
+    if (activeSection === 'dashboard' || activeSection === 'bookings') {
+      setTab('today');
+    }
+  }, [activeSection]);
 
   // Find driver name by id
   const getDriverName = (driverId: number | null) => {
@@ -222,17 +287,50 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
     return driver?.name ?? null;
   };
 
+  const getDriverById = (driverId: number | null) => {
+    if (!driverId) return null;
+    return drivers.find(d => d.id === driverId) ?? null;
+  };
+
   const openPaymentSheet = (booking: SupabaseBooking) => {
     setPaymentBooking(booking);
     setPaymentAmount(String(booking.fare ?? ''));
     setPaymentError(null);
   };
 
+  const openNotesSheet = (booking: SupabaseBooking) => {
+    setNotesBooking(booking);
+    setNotesDraft(booking.notes ?? '');
+  };
+
+  const saveBookingNotes = async () => {
+    if (!notesBooking) return;
+    setNotesSaving(true);
+    const { error } = await (supabase as any)
+      .from('bookings')
+      .update({ notes: notesDraft.trim() || null })
+      .eq('id', notesBooking.id);
+
+    if (error) {
+      toast.error(error.message);
+      setNotesSaving(false);
+      return;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    updateBookingState(notesBooking.id, { notes: notesDraft.trim() || null });
+    setNotesBooking(null);
+    setNotesDraft('');
+    setNotesSaving(false);
+    toast('Instructions updated');
+  };
+
   const handleApprove = async (driver: SupabaseDriver, isTemporary = false) => {
     const model = vehicleSelections[driver.id] || 'Maruti Swift';
     setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
-    const { error } = await supabase
-      .from('Drivers')
+    const db = supabase as any;
+    const { error } = await db
+      .from('drivers')
       .update({ status: 'free', vehicle_model: model, is_temporary: isTemporary })
       .eq('id', driver.id);
     if (error) {
@@ -246,7 +344,7 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
 
   const handleReject = async (driver: SupabaseDriver) => {
     setApprovalLoading(prev => ({ ...prev, [driver.id]: true }));
-    const { error } = await supabase.from('Drivers').delete().eq('id', driver.id);
+    const { error } = await (supabase as any).from('drivers').delete().eq('id', driver.id);
     if (error) {
       toast.error(error.message);
     } else {
@@ -261,8 +359,8 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
     setPaymentLoading(true);
     setPaymentError(null);
 
-    const { error } = await supabase
-      .from('bookings table')
+    const { error } = await (supabase as any)
+      .from('bookings')
       .update({
         amount_collected: Number(paymentAmount),
         payment_method: paymentMethod,
@@ -283,62 +381,61 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="bg-primary px-6 pt-8 pb-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Car className="h-5 w-5 text-secondary" />
-                <span className="text-sm font-semibold text-secondary tracking-wide uppercase">Anil's Cabs — Admin</span>
-              </div>
-              <h1 className="text-xl font-bold text-primary-foreground">Dashboard</h1>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-primary-foreground/60">Today</p>
-              <p className="text-sm font-semibold text-primary-foreground">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-            </div>
-          </div>
-
-          {/* Stats row */}
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { label: 'Free', count: freeCount, color: 'bg-success', icon: Car },
-              { label: 'On Trip', count: onTripCount, color: 'bg-secondary', icon: Activity },
-              { label: 'Offline', count: offlineCount, color: 'bg-destructive', icon: Users },
-              { label: 'Pending', count: pendingBookings.length, color: 'bg-warning', icon: Clock },
-            ].map((stat) => (
-              <div key={stat.label} className="bg-primary-foreground/5 rounded-xl p-3 text-center">
-                <div className={`h-2 w-2 rounded-full ${stat.color} mx-auto mb-1.5`} />
-                <p className="text-lg font-bold text-primary-foreground">{isLoading ? '-' : stat.count}</p>
-                <p className="text-[10px] text-primary-foreground/60 uppercase tracking-wider">{stat.label}</p>
-              </div>
-            ))}
-          </div>
+    <div>
+      {/* Page header */}
+      <div className="px-8 pt-8 pb-2 flex items-end justify-between">
+        <div>
+          <h2 className="text-4xl font-extrabold font-display tracking-tight text-foreground mb-2">
+            Fleet Pulse
+          </h2>
+          <p className="text-muted-foreground font-semibold">
+            Real-time metrics and dispatch operations
+          </p>
+        </div>
+        <div className="flex items-center gap-2 bg-muted px-4 py-2.5 rounded-xl">
+          <span className="w-2 h-2 rounded-full bg-success animate-pulse-dot" />
+          <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Live</span>
         </div>
       </div>
 
+      {showOverview && (
+        <>
+          {/* Bento Stats */}
+          <BentoStats />
+
+          {/* Fleet + Map Grid */}
+          <div className="grid grid-cols-12 gap-8 px-8 mt-6">
+            <DriverFleetList onAssign={(driver) => {
+              const firstPending = pendingBookings[0];
+              if (firstPending) setDispatchBooking(firstPending);
+            }} />
+            <MapPanel />
+          </div>
+        </>
+      )}
+
       {/* Tabs */}
-      <div className="max-w-5xl mx-auto px-6 -mt-3">
-        <div className="flex gap-2 mb-6">
-          {[
-            { id: 'today' as Tab, label: "Today's Board", icon: Calendar },
-            { id: 'fleet' as Tab, label: 'Fleet Health', icon: Car },
-            { id: 'collections' as Tab, label: 'Collections', icon: Activity },
-          ].map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition ${
-                tab === t.id ? 'bg-card shadow-elevated text-foreground' : 'text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              <t.icon className="h-4 w-4" />
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <div className="px-8 mt-8">
+        {activeSection !== 'settings' && (
+          <div className="flex gap-2 mb-6">
+            {[
+              { id: 'today' as Tab, label: "Today's Board", icon: Calendar },
+              { id: 'fleet' as Tab, label: 'Fleet Health', icon: Car },
+              { id: 'collections' as Tab, label: 'Collections', icon: Activity },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition ${
+                  tab === t.id ? 'bg-card shadow-elevated text-foreground' : 'text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <t.icon className="h-4 w-4" />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {isLoading && (
           <div className="flex items-center justify-center py-12">
@@ -346,23 +443,19 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
           </div>
         )}
 
-        {!isLoading && tab === 'today' && (
+        {!isLoading && activeSection === 'settings' && (
+          <Card className="p-6 shadow-card rounded-xl">
+            <h3 className="text-lg font-bold text-foreground">Settings</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Fleet settings are not wired into this prototype yet. The sidebar and top navigation now switch cleanly between the existing admin sections.
+            </p>
+          </Card>
+        )}
+
+        {!isLoading && activeSection !== 'settings' && tab === 'today' && (
           <div className="space-y-6 pb-8">
             <PaymentSummary bookings={bookings} />
 <PendingHandovers />
-            {/* Live Map placeholder */}
-              <Card className="p-5 shadow-card rounded-xl">
-              <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-secondary" /> Live Map
-              </h3>
-              <div id="admin-map" className="h-48 bg-muted rounded-lg relative overflow-hidden" />
-              <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-success" />Free</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-secondary" />On Trip</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-destructive" />Offline</span>
-              </div>
-            </Card>
-                  
 
             {/* Instant Queue */}
             <div>
@@ -520,7 +613,7 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
           </div>
         )}
 
-       {!isLoading && tab === 'fleet' && (
+       {!isLoading && activeSection !== 'settings' && tab === 'fleet' && (
           <div className="space-y-3 pb-8">
             {/* Period toggle */}
             <div className="flex gap-2 mb-2">
@@ -619,7 +712,7 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
                           className="h-9 border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs"
                           onClick={async (e) => {
                             e.stopPropagation();
-                            await supabase.from('Drivers').delete().eq('id', driver.id);
+                            await (supabase as any).from('drivers').delete().eq('id', driver.id);
                             queryClient.invalidateQueries({ queryKey: ['drivers'] });
                             toast(`${driver.name ?? 'Driver'} removed`);
                           }}
@@ -698,7 +791,7 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
           </div>
         )}
 
-        {tab === 'collections' && (
+        {!isLoading && activeSection !== 'settings' && tab === 'collections' && (
           <div className="pb-8">
             <CollectionsHistory />
           </div>
@@ -707,7 +800,7 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
 
       <button
         onClick={() => setShowNewBooking(true)}
-        className="fixed bottom-24 right-6 z-40 h-14 w-14 rounded-full bg-secondary text-secondary-foreground shadow-elevated flex items-center justify-center"
+        className="fixed bottom-24 right-6 z-40 h-14 w-14 rounded-full kinetic-gradient text-white shadow-elevated flex items-center justify-center hover:opacity-90 transition-opacity"
       >
         <Plus className="h-6 w-6" />
       </button>
@@ -723,9 +816,14 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
         open={!!dispatchBooking}
         onClose={() => setDispatchBooking(null)}
         onAssign={(bookingId, driverId) => {
+          updateBookingState(bookingId, {
+            driver_id: driverId,
+            status: 'confirmed',
+            dispatched_at: new Date().toISOString(),
+            driver_confirmed_at: null,
+          });
           queryClient.invalidateQueries({ queryKey: ['bookings'] });
           queryClient.invalidateQueries({ queryKey: ['drivers'] });
-          setDispatchBooking(null);
         }}
       />
 
@@ -751,51 +849,16 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
               { label: 'Payment', value: detailBooking.payment_method },
               { label: 'Amount collected', value: detailBooking.amount_collected != null ? `₹${detailBooking.amount_collected}` : null },
               { label: 'Payment confirmed', value: detailBooking.payment_confirmed_at ? new Date(detailBooking.payment_confirmed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true }) : null },
+              { label: 'Instructions', value: detailBooking.notes },
               { label: 'Stops', value: detailBooking.stops },
               { label: 'Days', value: detailBooking.number_of_days },
               { label: 'Return date', value: detailBooking.return_date },
               { label: 'Driver stay', value: detailBooking.driver_stay_required ? 'Required' : null },
             ];
-            useEffect(() => {
-    if (tab !== 'today') return;
-
-    let attempts = 0;
-    const tryInit = () => {
-      attempts++;
-      if (attempts > 20) return;
-      if (!window.mappls) { setTimeout(tryInit, 500); return; }
-
-      const mapContainer = document.getElementById("admin-map");
-      if (!mapContainer) { setTimeout(tryInit, 300); return; }
-      if (mapContainer.innerHTML !== "") return;
-
-      try {
-        const map = new window.mappls.Map("admin-map", {
-          center: [75.7873, 26.9124],
-          zoom: 12,
-          search: false,
-        });
-
-        map.on('load', () => {
-          drivers
-            .filter(d => d.status !== 'offline' && d.location_lat && d.location_lng)
-            .forEach(driver => {
-              const color = driver.status === 'free' ? '#22c55e' : '#f59e0b';
-              new window.mappls.Marker({
-                map,
-                position: [driver.location_lng!, driver.location_lat!],
-                popupHtml: `<div style="padding:4px 8px;font-size:12px;font-weight:600;color:${color}">${driver.name ?? 'Driver'}<br/><span style="font-size:10px;color:#666">${driver.status}</span></div>`,
-                popupOptions: { openPopup: false },
-              });
-            });
-        });
-      } catch (e) {
-        console.error('Admin map error:', e);
-      }
-    };
-
-    setTimeout(tryInit, 800);
-  }, [tab, drivers]);
+            const assignedDriver = getDriverById(detailBooking.driver_id);
+            const assignedDriverMeta = assignedDriver
+              ? [assignedDriver.vehicle_model, assignedDriver.plate_number].filter(Boolean).join(' · ')
+              : '';
             return (
               <div className="space-y-3">
                 {rows.filter(r => r.value !== null && r.value !== undefined && r.value !== '').map(row => (
@@ -804,9 +867,63 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
                     <span className="text-sm font-medium text-right">{String(row.value)}</span>
                   </div>
                 ))}
-                <div className="pt-3 flex gap-2">
-                  <Button size="sm" className="flex-1 bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-lg text-xs" onClick={() => { setDispatchBooking(detailBooking); setDetailBooking(null); }}>
-                    <Car className="h-3 w-3 mr-1" />Assign Driver
+                {assignedDriver && (
+                  <Card className="rounded-xl border border-border/80 bg-muted/40 p-4">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Assigned driver</p>
+                    <div className="mt-3 flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{assignedDriver.name ?? 'Driver assigned'}</p>
+                        {assignedDriverMeta && (
+                          <p className="text-xs text-muted-foreground mt-1">{assignedDriverMeta}</p>
+                        )}
+                        {assignedDriver.phone && (
+                          <p className="text-xs text-muted-foreground mt-1">{assignedDriver.phone}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {assignedDriver.location_lat
+                            ? 'Live location available for tracking.'
+                            : 'Driver location will appear once the app shares GPS.'}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="capitalize">
+                        {(assignedDriver.status ?? 'offline').replace('-', ' ')}
+                      </Badge>
+                    </div>
+                  </Card>
+                )}
+                <div className="pt-3 flex flex-wrap gap-2">
+                  {!detailBooking.driver_id && (
+                    <Button size="sm" className="flex-1 bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-lg text-xs" onClick={() => { setDispatchBooking(detailBooking); setDetailBooking(null); }}>
+                      <Car className="h-3 w-3 mr-1" />Assign Driver
+                    </Button>
+                  )}
+                  {detailBooking.driver_id && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 rounded-lg text-xs"
+                        onClick={() => assignedDriver && openDriverInMaps(assignedDriver)}
+                        disabled={!assignedDriver?.location_lat || !assignedDriver.location_lng}
+                      >
+                        <MapPin className="h-3 w-3 mr-1" />
+                        {assignedDriver?.location_lat ? 'Track Driver' : 'Driver location pending'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 rounded-lg text-xs"
+                        onClick={() => {
+                          setDispatchBooking(detailBooking);
+                          setDetailBooking(null);
+                        }}
+                      >
+                        <Car className="h-3 w-3 mr-1" />Reassign Driver
+                      </Button>
+                    </>
+                  )}
+                  <Button size="sm" variant="outline" className="flex-1 rounded-lg text-xs" onClick={() => openNotesSheet(detailBooking)}>
+                    <FileText className="h-3 w-3 mr-1" />{detailBooking.notes ? 'Update Instructions' : 'Add Instructions'}
                   </Button>
                   <Button size="sm" variant="outline" className="flex-1 rounded-lg text-xs" onClick={() => { openPaymentSheet(detailBooking); setDetailBooking(null); }}>
                     Log Payment
@@ -817,6 +934,26 @@ const [expandedDriverId, setExpandedDriverId] = useState<number | null>(null);
           })()}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={!!notesBooking} onOpenChange={() => setNotesBooking(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Driver instructions</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <textarea
+              value={notesDraft}
+              onChange={(event) => setNotesDraft(event.target.value)}
+              placeholder="Call on arrival, gate number, luggage notes..."
+              rows={4}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <Button className="w-full" onClick={saveBookingNotes} disabled={notesSaving}>
+              {notesSaving ? 'Saving...' : 'Save Instructions'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!paymentBooking} onOpenChange={() => setPaymentBooking(null)}>
         <DialogContent className="max-w-sm">

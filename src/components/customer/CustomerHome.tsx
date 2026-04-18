@@ -5,12 +5,14 @@ import { Card } from '@/components/ui/card';
 import { BookingFlow } from './BookingFlow';
 import { useFixedRoutes, useLastBooking, tripTypeIcons } from '@/hooks/useSupabaseData';
 import { useDriversPublic } from '@/hooks/useDriversPublic';
+import { useOrg } from '@/hooks/useOrg';
 
 type View = 'home' | 'booking';
 
 export function CustomerHome() {
   const [view, setView] = useState<View>('home');
   const [repeatData, setRepeatData] = useState<typeof lastBooking>(null);
+  const { org } = useOrg();
   const { data: routes = [], isLoading: routesLoading } = useFixedRoutes();
   const { data: drivers = [] } = useDriversPublic();
   const { data: lastBooking } = useLastBooking();
@@ -26,10 +28,10 @@ export function CustomerHome() {
         <div className="max-w-md mx-auto">
           <div className="flex items-center gap-2 mb-1">
             <Car className="h-5 w-5 text-secondary" />
-            <span className="text-sm font-semibold text-secondary tracking-wide uppercase">Anil's Cabs</span>
+            <span className="text-sm font-semibold text-secondary tracking-wide uppercase">{org?.brand_name ?? 'FleetOs'}</span>
           </div>
           <h1 className="text-2xl font-bold text-primary-foreground mb-1">Where to?</h1>
-          <p className="text-primary-foreground/70 text-sm">Jaipur's most reliable rides</p>
+          <p className="text-primary-foreground/70 text-sm">Your most reliable rides</p>
 
           <div className="mt-6 space-y-3">
             {lastBooking && (
@@ -131,7 +133,7 @@ export function CustomerHome() {
                 <span>₹180</span>
               </div>
             </div>
-            <Button variant="ghost" size="sm" className="text-xs">Rebook</Button>
+            <Button variant="ghost" size="sm" className="text-xs" onClick={() => setView('booking')}>Rebook</Button>
           </div>
         </Card>
       </div>

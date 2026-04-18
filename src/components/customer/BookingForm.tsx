@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { LocationInput } from './LocationInput';
 import { TripType } from './TripTypeSelector';
+import { TripPreviewMap } from '@/components/maps/TripPreviewMap';
 import { cn } from '@/lib/utils';
 
 export interface BookingFormData {
@@ -16,7 +17,6 @@ export interface BookingFormData {
   customerName: string;
   customerPhone: string;
   hubCity: string;
-  numberOfDays: number;
   passengerCount: number;
   notes: string;
   // Airport
@@ -51,7 +51,6 @@ export const defaultFormData: BookingFormData = {
   stops: [],
   isRoundTrip: false,
   returnDate: '',
-  numberOfDays: 1,
   driverStayRequired: false,
 };
 
@@ -63,6 +62,21 @@ interface BookingFormProps {
 
 export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
   const update = (partial: Partial<BookingFormData>) => onChange({ ...data, ...partial });
+  const airportTerminal = `${data.hubCity || 'City'} Airport`;
+  const previewPickup = data.tripType === 'airport' && data.airportDirection === 'arriving'
+    ? airportTerminal
+    : data.pickup;
+  const previewDrop = data.tripType === 'airport'
+    ? data.airportDirection === 'arriving'
+      ? data.pickup
+      : airportTerminal
+    : data.drop;
+  const previewStops = data.tripType === 'city_tour'
+    ? data.stops.filter(stop => stop.trim().length > 0)
+    : [];
+  const previewSubtitle = previewDrop || previewStops.length > 0
+    ? 'Cab-style route preview with highlighted path'
+    : 'Add your destination to see the route update live';
 
   const addStop = () => {
     if (data.stops.length < 6) update({ stops: [...data.stops, ''] });
@@ -76,6 +90,7 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
 
   const isValid = () => {
     if (!data.date || !data.time) return false;
+    if (new Date(`${data.date}T${data.time}`) <= new Date()) return false;
     if (!data.customerName.trim() || data.customerPhone.length < 10) return false;
     switch (data.tripType) {
       case 'local': return !!(data.pickup && data.drop);
@@ -206,7 +221,7 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
             >
               +
             </button>
-            <span className="text-xs text-muted-foreground">day{data.numberOfDays > 1 ? 's' : ''}</span>
+            <span className="text-xs text-muted-foreground">{data.numberOfDays} day{data.numberOfDays > 1 ? 's' : ''}</span>
           </div>
         </div>
       )}
@@ -271,6 +286,7 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
               >
                 <Plus className="h-4 w-4" />
               </button>
+              <span className="text-xs text-muted-foreground">{data.numberOfDays} day{data.numberOfDays > 1 ? 's' : ''}</span>
             </div>
           </div>
           <div>
@@ -294,6 +310,15 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
           </div>
         </>
       )}
+
+      <TripPreviewMap
+        pickup={previewPickup}
+        drop={previewDrop}
+        stops={previewStops}
+        title="Trip map"
+        subtitle={previewSubtitle}
+        mapClassName="h-[250px]"
+      />
 {/* Passenger count */}
       <div>
         <label className="text-xs text-muted-foreground mb-2 block">Number of passengers</label>

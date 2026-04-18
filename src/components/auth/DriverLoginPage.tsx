@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Car, Clock, ChevronLeft, Loader2 } from 'lucide-react';
-import { Card } from '@/components/ui/card';
+import { Car, Clock, ChevronLeft, Loader2, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { supabase } from '@/integrations/supabase/client';
 import { DriverApp } from '@/components/driver/DriverApp';
+import { useOrg } from '@/hooks/useOrg';
 
 type Screen = 'phone' | 'otp' | 'holding' | 'app';
 
@@ -18,21 +18,48 @@ export function DriverLoginPage() {
   const [foundDriver, setFoundDriver] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { org } = useOrg();
 useEffect(() => {
     const savedDriver = sessionStorage.getItem('fleetos_driver');
     const savedScreen = sessionStorage.getItem('fleetos_driver_screen');
-    if (savedDriver && savedScreen) {
-      setFoundDriver(JSON.parse(savedDriver));
-      setScreen(savedScreen as Screen);
-    }
+    if (!savedDriver || !savedScreen) return;
+
+    const parsed = JSON.parse(savedDriver);
+
+    // Always fetch fresh status from Supabase — admin may have approved/rejected
+    supabase
+      .from('drivers')
+      .select('*')
+      .eq('id', parsed.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) {
+          // Driver deleted — clear session
+          sessionStorage.removeItem('fleetos_driver');
+          sessionStorage.removeItem('fleetos_driver_screen');
+          return;
+        }
+
+        // Update sessionStorage with fresh data
+        const freshScreen: Screen =
+          data.status === 'free' || data.status === 'on-trip' ? 'app' : 'holding';
+
+        sessionStorage.setItem('fleetos_driver', JSON.stringify(data));
+        sessionStorage.setItem('fleetos_driver_screen', freshScreen);
+
+        setFoundDriver(data);
+        setScreen(freshScreen);
+      });
   }, []);
   const handleSendOtp = async () => {
     setLoading(true);
     setError(null);
-    const { data } = await supabase
-      .from('Drivers')
+    const db = supabase as any;
+    const { data } = await db
+      .from('drivers')
       .select('*')
-      .ilike('phone', `%${phone.slice(-5)}`)
+      .eq('org_id', org!.id)
+      .ilike('phone', `%${phone.slice(-10)}`)
       .maybeSingle();
     setFoundDriver(data);
     setScreen('otp');
@@ -61,7 +88,9 @@ useEffect(() => {
   const handleRegister = async () => {
     setLoading(true);
     setError(null);
-    await supabase.from('Drivers').insert({
+    const db = supabase as any;
+    await db.from('drivers').insert({
+      org_id: org!.id,
       name: driverName,
       phone: '+91' + phone,
       status: 'pending_approval',
@@ -93,11 +122,13 @@ useEffect(() => {
   if (screen === 'phone') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <Card className="w-full max-w-sm p-6 shadow-elevated">
-          <div className="text-center mb-6">
-            <Car className="h-10 w-10 mx-auto mb-3 text-primary" />
-            <h1 className="text-xl font-bold">Driver Login</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+        <div className="w-full max-w-sm bg-card rounded-[2rem] shadow-elevated p-10">
+          <div className="text-center mb-8">
+            <div className="w-14 h-14 kinetic-gradient rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-elevated">
+              <Zap className="h-7 w-7 text-white" />
+            </div>
+            <h1 className="text-2xl font-display font-black tracking-tighter text-foreground">Driver Login</h1>
+            <p className="text-sm text-muted-foreground mt-1 font-label">
               Enter your registered mobile number
             </p>
           </div>
@@ -117,15 +148,15 @@ useEffect(() => {
 
           {error && <p className="text-sm text-destructive mb-3">{error}</p>}
 
-          <Button
-            className="w-full"
+          <button
+            className="w-full kinetic-gradient text-white font-bold font-display rounded-xl py-3 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-60"
             disabled={loading || phone.length !== 10}
             onClick={handleSendOtp}
           >
-            {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Send OTP
-          </Button>
-        </Card>
+          </button>
+        </div>
       </div>
     );
   }
@@ -133,7 +164,7 @@ useEffect(() => {
   // screen === 'otp'
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <Card className="w-full max-w-sm p-6 shadow-elevated">
+      <div className="w-full max-w-sm bg-card rounded-[2rem] shadow-elevated p-10">
         <button
           className="text-xs text-muted-foreground mb-4 flex items-center gap-1 hover:text-foreground transition-colors"
           onClick={() => { setScreen('phone'); setOtp(''); setError(null); }}
@@ -164,9 +195,13 @@ useEffect(() => {
 
         {error && <p className="text-sm text-destructive mb-3 text-center">{error}</p>}
 
-        <Button className="w-full mb-4" onClick={handleVerify} disabled={otp.length < 6}>
+        <button
+          className="w-full kinetic-gradient text-white font-bold font-display rounded-xl py-3 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-60 mb-4"
+          onClick={handleVerify}
+          disabled={otp.length < 6}
+        >
           Verify
-        </Button>
+        </button>
 
         {/* Name registration — only when driver not found and OTP is complete */}
         {!foundDriver && otp.length === 6 && (
@@ -175,25 +210,26 @@ useEffect(() => {
               Phone not registered. Enter your name to register.
             </p>
             <div>
-              <Label htmlFor="driverName">Full Name</Label>
+              <Label htmlFor="driverName" className="font-label text-sm text-muted-foreground">Full Name</Label>
               <Input
                 id="driverName"
                 placeholder="e.g. Ramesh Kumar"
                 value={driverName}
                 onChange={e => setDriverName(e.target.value)}
+                className="bg-muted border-none rounded-xl mt-1"
               />
             </div>
-            <Button
-              className="w-full"
+            <button
+              className="w-full kinetic-gradient text-white font-bold font-display rounded-xl py-3 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-60"
               disabled={loading || !driverName.trim()}
               onClick={handleRegister}
             >
-              {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Register
-            </Button>
+            </button>
           </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }

@@ -4,7 +4,9 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useDrivers, tripTypeIcons, getDriverInitials, type SupabaseDriver, type SupabaseBooking } from '@/hooks/useSupabaseData';
+import { useOrg } from '@/hooks/useOrg';
 import { supabase } from '@/integrations/supabase/client';
+import { queueAssignmentMessage } from '@/lib/customerAutomation';
 
 interface DispatchEngineProps {
   booking: SupabaseBooking | null;
@@ -24,14 +26,15 @@ interface DriverCandidate extends SupabaseDriver {
 
 // ── Conflict check ────────────────────────────────────────────────────────────
 // Returns the conflicting booking's scheduled_at if driver is busy, else null
-async function getConflict(driverId: number, tripTime: string): Promise<string | null> {
+async function getConflict(driverId: number, tripTime: string, orgId: string): Promise<string | null> {
   const t = new Date(tripTime).getTime();
   const windowStart = new Date(t - 2 * 60 * 60 * 1000).toISOString(); // -2hr
   const windowEnd   = new Date(t + 4 * 60 * 60 * 1000).toISOString(); // +4hr
 
-  const { data } = await supabase
-    .from('bookings table')
+  const { data } = await (supabase as any)
+    .from('bookings')
     .select('id, scheduled_at')
+    .eq('org_id', orgId)
     .eq('driver_id', driverId)
     .in('status', ['confirmed', 'in-progress'])
     .gte('scheduled_at', windowStart)
@@ -54,11 +57,13 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
   const [error, setError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<DriverCandidate[]>([]);
   const [checking, setChecking] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const { data: drivers = [] } = useDrivers();
+  const { org } = useOrg();
 
   // ── Build candidates with conflict check whenever dialog opens ────────────
   useEffect(() => {
-    if (!open || !booking) return;
+    if (!open || !booking || !org) return;
 
     const scheduledAt = booking.scheduled_at ?? new Date().toISOString();
 
@@ -68,7 +73,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
 
       const results: DriverCandidate[] = await Promise.all(
         freeDrivers.map(async (driver, i) => {
-          const conflictAt = await getConflict(driver.id, scheduledAt);
+          const conflictAt = await getConflict(driver.id, scheduledAt, org.id);
           const distanceKm = +(1.5 + i * 2.3).toFixed(1);
           const etaMinutes = Math.round(distanceKm * 3.2);
           const score      = conflictAt ? 0 : Math.max(+(100 - distanceKm * 5).toFixed(0), 20);
@@ -101,7 +106,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
     };
 
     build();
-  }, [open, booking, drivers]);
+  }, [open, booking, drivers, org, refreshKey]);
 
   if (!booking) return null;
 
@@ -113,12 +118,23 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
     setAssigning(driverId);
     setError(null);
     try {
-      const { error } = await supabase
-        .from('bookings table')
-        .update({ driver_id: driverId, status: 'confirmed' })
+      const selectedDriver = candidates.find(candidate => candidate.id === driverId) ?? drivers.find(driver => driver.id === driverId);
+      const db = supabase as any;
+      const { error: bookingError } = await db
+        .from('bookings')
+        .update({
+          driver_id: driverId,
+          status: 'confirmed',
+          dispatched_at: new Date().toISOString(),
+          driver_confirmed_at: null,
+        })
         .eq('id', booking.id);
 
-      if (error) throw error;
+      if (bookingError) throw bookingError;
+
+      if (selectedDriver) {
+        await queueAssignmentMessage(booking, selectedDriver, org);
+      }
 
       setAssigned(true);
       onAssign(booking.id, driverId);
@@ -232,10 +248,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
               </h4>
               <Button
                 variant="ghost" size="sm" className="text-xs h-7"
-                onClick={() => {
-                  setChecking(true);
-                  setTimeout(() => setChecking(false), 100);
-                }}
+                onClick={() => setRefreshKey(k => k + 1)}
               >
                 <RotateCcw className="h-3 w-3 mr-1" /> Refresh
               </Button>

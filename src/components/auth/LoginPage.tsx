@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
-import { LogIn, UserPlus, Loader2, Car, Settings } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, Car, Settings, Zap } from 'lucide-react';
 
 export function LoginPage({ onDriverSelect }: { onDriverSelect?: () => void }) {
   const { signIn, signUp } = useAuth();
@@ -36,12 +35,14 @@ export function LoginPage({ onDriverSelect }: { onDriverSelect?: () => void }) {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <Card className="w-full max-w-sm p-6 shadow-elevated">
-        <div className="text-center mb-6">
-          <h1 className="text-xl font-bold">Staff Login</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Sign in to access admin, driver, and pricing panels
-          </p>
+      <div className="w-full max-w-sm bg-card rounded-[2rem] shadow-elevated p-10">
+        {/* Logo mark */}
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-14 h-14 kinetic-gradient rounded-2xl flex items-center justify-center mb-4 shadow-elevated">
+            <Zap className="h-7 w-7 text-white" />
+          </div>
+          <h1 className="text-2xl font-display font-black tracking-tighter text-foreground">FleetOs</h1>
+          <p className="text-sm text-muted-foreground mt-1 font-label">Staff access portal</p>
         </div>
 
         {/* Role selector tiles */}
@@ -49,71 +50,77 @@ export function LoginPage({ onDriverSelect }: { onDriverSelect?: () => void }) {
           <button
             type="button"
             onClick={() => { setRole('driver'); onDriverSelect?.(); }}
-            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl transition-all ${
               role === 'driver'
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-primary/40'
+                ? 'border-2 border-accent bg-accent/10'
+                : 'border border-border hover:border-accent/40 bg-card'
             }`}
           >
-            <Car className="h-6 w-6" />
-            <span className="text-sm font-semibold">Driver</span>
+            <Car className="h-6 w-6 text-foreground" />
+            <span className="text-sm font-semibold text-foreground">Driver</span>
           </button>
           <button
             type="button"
             onClick={() => setRole('admin')}
-            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl transition-all ${
               role === 'admin'
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-primary/40'
+                ? 'border-2 border-accent bg-accent/10'
+                : 'border border-border hover:border-accent/40 bg-card'
             }`}
           >
-            <Settings className="h-6 w-6" />
-            <span className="text-sm font-semibold">Admin</span>
+            <Settings className="h-6 w-6 text-foreground" />
+            <span className="text-sm font-semibold text-foreground">Admin</span>
           </button>
         </div>
 
         {role === 'admin' && (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              placeholder="you@example.com"
-            />
-          </div>
-          <div>
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              minLength={6}
-              placeholder="••••••••"
-            />
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="email" className="text-sm font-label text-muted-foreground">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                placeholder="you@example.com"
+                className="bg-muted border-none rounded-xl focus:ring-2 focus:ring-ring/30 mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="password" className="text-sm font-label text-muted-foreground">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                minLength={6}
+                placeholder="••••••••"
+                className="bg-muted border-none rounded-xl focus:ring-2 focus:ring-ring/30 mt-1"
+              />
+            </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {message && <p className="text-sm text-success">{message}</p>}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            {message && <p className="text-sm text-success">{message}</p>}
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : isSignUp ? (
-              <UserPlus className="h-4 w-4 mr-2" />
-            ) : (
-              <LogIn className="h-4 w-4 mr-2" />
-            )}
-            {isSignUp ? 'Sign Up' : 'Sign In'}
-          </Button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full kinetic-gradient text-white font-bold font-display rounded-xl py-3 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-60 mt-2"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isSignUp ? (
+                <UserPlus className="h-4 w-4" />
+              ) : (
+                <LogIn className="h-4 w-4" />
+              )}
+              {isSignUp ? 'Sign Up' : 'Sign In'}
+            </button>
+          </form>
         )}
-      </Card>
+      </div>
     </div>
   );
 }
