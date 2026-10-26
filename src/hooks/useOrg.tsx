@@ -27,12 +27,18 @@ const OrgContext = createContext<OrgContextType>({
   orgError: null,
 });
 
+// The fleet served when the address matches no organisation: local dev, Vercel preview links
+// and the project's own *.vercel.app address. Safe because Vercel only serves addresses added
+// to this project. Override with VITE_DEFAULT_ORG_SLUG once a second fleet goes live.
+const DEFAULT_ORG_SLUG = import.meta.env.VITE_DEFAULT_ORG_SLUG || 'anilcabs';
+
+const ORG_COLUMNS = 'id, slug, name, brand_name, brand_logo_url, brand_color, join_code, upi_id, upi_qr_url, google_review_url, report_frequency_days';
+
 function resolveSlugFromHostname(): { slug: string | null; customDomain: string | null } {
   const hostname = window.location.hostname;
 
-  // Local dev — default to 'anilcabs' so existing dev flow works unchanged
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return { slug: 'anilcabs', customDomain: null };
+    return { slug: DEFAULT_ORG_SLUG, customDomain: null };
   }
 
   // Subdomain of fleetos.app  e.g. anilcabs.fleetos.app
@@ -63,19 +69,17 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const db = supabase;
-        let query = db
-          .from('organizations')
-          // Only public columns: secrets like whatsapp_api_key are not readable from the browser.
-          .select('id, slug, name, brand_name, brand_logo_url, brand_color, join_code, upi_id, upi_qr_url, google_review_url, report_frequency_days');
+      // Only public columns: secrets like whatsapp_api_key are not readable from the browser.
+      const orgs = supabase.from('organizations').select(ORG_COLUMNS);
+      let { data, error } = await (slug
+        ? orgs.eq('slug', slug)
+        : orgs.eq('custom_domain', customDomain)
+      ).maybeSingle();
 
-      if (slug) {
-        query = query.eq('slug', slug);
-      } else {
-        query = query.eq('custom_domain', customDomain);
+      if (!error && !data && customDomain) {
+        ({ data, error } = await supabase.from('organizations').select(ORG_COLUMNS)
+          .eq('slug', DEFAULT_ORG_SLUG).maybeSingle());
       }
-
-      const { data, error } = await query.maybeSingle();
 
       if (error) {
         setOrgError(error.message);
