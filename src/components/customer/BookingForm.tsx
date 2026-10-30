@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Minus, X, GripVertical } from 'lucide-react';
+import { Plus, Minus, X, GripVertical, PlaneLanding, PlaneTakeoff, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -110,7 +110,7 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
   };
 
   return (
-    <Card className="p-5 shadow-elevated rounded-xl animate-slide-up space-y-4">
+    <Card className="p-4 shadow-card rounded-xl animate-slide-up space-y-4">
       {/* Common: Pickup */}
       <LocationInput
         value={data.pickup}
@@ -128,13 +128,14 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
                 key={dir}
                 onClick={() => update({ airportDirection: dir })}
                 className={cn(
-                  'flex-1 py-3 text-xs font-semibold transition',
+                  'flex-1 min-h-[44px] px-2 py-2 text-xs font-semibold transition flex items-center justify-center gap-2',
                   data.airportDirection === dir
-                    ? 'bg-secondary text-secondary-foreground'
+                    ? 'bg-primary text-primary-foreground'
                     : 'bg-card text-muted-foreground hover:bg-muted'
                 )}
               >
-                {dir === 'arriving' ? `✈️ Arriving in ${data.hubCity || 'your city'}` : `✈️ Departing from ${data.hubCity || 'your city'}`}
+                {dir === 'arriving' ? <PlaneLanding className="h-4 w-4 shrink-0" /> : <PlaneTakeoff className="h-4 w-4 shrink-0" />}
+                {dir === 'arriving' ? `Arriving in ${data.hubCity || 'your city'}` : `Departing from ${data.hubCity || 'your city'}`}
               </button>
             ))}
           </div>
@@ -173,15 +174,15 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
                 placeholder={`Stop ${i + 1}`}
                 value={stop}
                 onChange={(e) => updateStop(i, e.target.value)}
-                className="h-10 rounded-lg text-sm"
+                className="h-12 rounded-lg text-sm"
               />
-              <button onClick={() => removeStop(i)} className="shrink-0">
+              <button onClick={() => removeStop(i)} aria-label={`Remove stop ${i + 1}`} className="shrink-0 h-11 w-11 flex items-center justify-center">
                 <X className="h-4 w-4 text-muted-foreground" />
               </button>
             </div>
           ))}
           {data.stops.length < 6 && (
-            <Button variant="outline" size="sm" onClick={addStop} className="w-full rounded-lg text-xs">
+            <Button variant="outline" size="sm" onClick={addStop} className="w-full h-11 rounded-lg text-xs">
               <Plus className="h-3.5 w-3.5 mr-1" /> Add stop
             </Button>
           )}
@@ -198,9 +199,9 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
                 key={h}
                 onClick={() => update({ estimatedHours: h })}
                 className={cn(
-                  'flex-1 py-2.5 rounded-lg text-sm font-semibold transition border',
+                  'flex-1 h-11 rounded-lg text-sm font-semibold transition border',
                   data.estimatedHours === h
-                    ? 'bg-secondary text-secondary-foreground border-secondary'
+                    ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-card text-muted-foreground border-border hover:border-muted-foreground/40'
                 )}
               >
@@ -217,14 +218,14 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
           <div className="flex items-center gap-4">
             <button
               onClick={() => update({ numberOfDays: Math.max(1, data.numberOfDays - 1) })}
-              className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+              className="h-11 w-11 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
             >
               −
             </button>
             <span className="text-xl font-bold w-8 text-center">{data.numberOfDays}</span>
             <button
               onClick={() => update({ numberOfDays: Math.min(30, data.numberOfDays + 1) })}
-              className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+              className="h-11 w-11 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
             >
               +
             </button>
@@ -239,24 +240,24 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
           <button
             onClick={() => update({ isRoundTrip: false })}
             className={cn(
-              'flex-1 py-2.5 rounded-lg text-xs font-semibold border transition',
+              'flex-1 h-11 rounded-lg text-xs font-semibold border transition',
               !data.isRoundTrip
-                ? 'bg-secondary text-secondary-foreground border-secondary'
+                ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-card text-muted-foreground border-border'
             )}
           >
-            One Way
+            One way
           </button>
           <button
             onClick={() => update({ isRoundTrip: true })}
             className={cn(
-              'flex-1 py-2.5 rounded-lg text-xs font-semibold border transition',
+              'flex-1 h-11 rounded-lg text-xs font-semibold border transition',
               data.isRoundTrip
-                ? 'bg-secondary text-secondary-foreground border-secondary'
+                ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-card text-muted-foreground border-border'
             )}
           >
-            Round Trip
+            Round trip
           </button>
         </div>
       )}
@@ -282,14 +283,14 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => update({ numberOfDays: Math.max(1, data.numberOfDays - 1) })}
-                className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition"
+                className="h-11 w-11 rounded-lg border flex items-center justify-center hover:bg-muted transition"
               >
                 <Minus className="h-4 w-4" />
               </button>
               <span className="text-xl font-bold w-8 text-center">{data.numberOfDays}</span>
               <button
                 onClick={() => update({ numberOfDays: Math.min(14, data.numberOfDays + 1) })}
-                className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition"
+                className="h-11 w-11 rounded-lg border flex items-center justify-center hover:bg-muted transition"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -304,9 +305,9 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
                   key={String(val)}
                   onClick={() => update({ driverStayRequired: val })}
                   className={cn(
-                    'flex-1 py-2.5 rounded-lg text-xs font-semibold border transition',
+                    'flex-1 h-11 rounded-lg text-xs font-semibold border transition',
                     data.driverStayRequired === val
-                      ? 'bg-secondary text-secondary-foreground border-secondary'
+                      ? 'bg-primary text-primary-foreground border-primary'
                       : 'bg-card text-muted-foreground border-border'
                   )}
                 >
@@ -332,14 +333,14 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
         <div className="flex items-center gap-4">
           <button
             onClick={() => setPassengers(Math.max(1, data.passengerCount - 1))}
-            className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+            className="h-11 w-11 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
           >
             −
           </button>
           <span className="text-xl font-bold w-6 text-center">{data.passengerCount}</span>
           <button
             onClick={() => setPassengers(Math.min(6, data.passengerCount + 1))}
-            className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
+            className="h-11 w-11 rounded-lg border flex items-center justify-center hover:bg-muted transition text-lg font-bold"
           >
             +
           </button>
@@ -365,7 +366,7 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
               className={cn(
                 'rounded-xl border p-3 text-left transition disabled:opacity-50',
                 data.vehicleClass === option.id
-                  ? 'border-secondary bg-secondary/10'
+                  ? 'border-primary bg-primary/5'
                   : 'border-border bg-card hover:bg-muted'
               )}
             >
@@ -420,9 +421,6 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
       </div>
 
       {/* Date + Time */}
-      {/* Date + Time */}
-      <div className="grid grid-cols-2 gap-3"></div>
-      {/* Date + Time */}
       {(() => {
         const now = new Date();
         now.setMinutes(now.getMinutes() + 15);
@@ -467,9 +465,10 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
       <Button
         onClick={onNext}
         disabled={!isValid()}
-        className="w-full h-12 bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-xl font-semibold"
+        className="w-full h-12 rounded-xl font-semibold justify-between px-4"
       >
-        Next →
+        Next
+        <ChevronRight className="h-5 w-5" />
       </Button>
     </Card>
   );

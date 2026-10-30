@@ -54,7 +54,7 @@ BEGIN
   IF p_pin !~ '^[0-9]{6}$' THEN
     RAISE EXCEPTION 'PIN must be exactly 6 digits';
   END IF;
-  INSERT INTO sdpublic.driver_pins AS p (driver_id, pin_hash, failed_attempts, locked_until, updated_at)
+  INSERT INTO public.driver_pins AS p (driver_id, pin_hash, failed_attempts, locked_until, updated_at)
   VALUES (p_driver_id, crypt(p_pin, gen_salt('bf')), 0, NULL, now())
   ON CONFLICT (driver_id) DO UPDATE
     SET pin_hash = EXCLUDED.pin_hash, failed_attempts = 0, locked_until = NULL, updated_at = now();

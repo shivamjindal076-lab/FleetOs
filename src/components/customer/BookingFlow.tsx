@@ -12,9 +12,9 @@ interface BookingFlowProps {
 type Step = 'type' | 'form' | 'summary';
 
 const stepLabels: Record<Step, string> = {
-  type: 'Select Trip Type',
-  form: 'Trip Details',
-  summary: 'Review & Confirm',
+  type: 'Trip type',
+  form: 'Trip details',
+  summary: 'Review and confirm',
 };
 
 // Maps DB trip_type values to BookingForm TripType
@@ -67,7 +67,7 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-primary px-6 pt-12 pb-6 rounded-b-[2rem]">
+      <div className="bg-primary px-6 pt-12 pb-6 rounded-b-xl">
         <div className="max-w-md mx-auto">
           <button
             onClick={() => {
@@ -75,13 +75,13 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
               else if (step === 'form') setStep('type');
               else setStep('form');
             }}
-            className="flex items-center gap-2 text-primary-foreground/70 mb-4"
+            className="-ml-2 mb-4 flex min-h-[44px] items-center gap-2 px-2 text-primary-foreground/80"
           >
             <ArrowLeft className="h-5 w-5" />
             <span className="text-sm">Back</span>
           </button>
           <h1 className="text-xl font-bold text-primary-foreground">{stepLabels[step]}</h1>
-          <p className="text-primary-foreground/60 text-sm mt-1">Book any trip type</p>
+          <p className="text-primary-foreground/80 text-sm mt-1">Step {stepIndex + 1} of 3</p>
 
           {/* Progress dots */}
           <div className="flex gap-1.5 mt-4">
@@ -89,7 +89,7 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
               <div
                 key={i}
                 className={`h-1.5 rounded-full transition-all ${
-                  i <= stepIndex ? 'bg-secondary w-8' : 'bg-primary-foreground/20 w-4'
+                  i <= stepIndex ? 'bg-primary-foreground w-8' : 'bg-primary-foreground/30 w-4'
                 }`}
               />
             ))}
@@ -97,9 +97,9 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
         </div>
       </div>
 
-      <div className="max-w-md mx-auto px-6 -mt-4">
+      <div className="max-w-md mx-auto px-6 pt-6 pb-8">
         {step === 'type' && (
-          <div className="animate-slide-up pt-2">
+          <div className="animate-slide-up">
             <TripTypeSelector selected={formData.tripType} onSelect={handleTypeSelect} />
           </div>
         )}
