@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Car, MapPin, Clock, Star, ChevronRight, Loader2, Navigation } from 'lucide-react';
+import { Car, ChevronRight, Clock, MapPin, MessageCircle, Navigation, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { FleetMark } from '@/components/FleetMark';
+import { TripTypeIcon } from '@/components/TripTypeIcon';
 import { BookingFlow } from './BookingFlow';
 import { TrackBooking } from './TrackBooking';
-import { useFixedRoutes, useLastBooking, tripTypeIcons } from '@/hooks/useSupabaseData';
+import { useFixedRoutes, useLastBooking } from '@/hooks/useSupabaseData';
 import { useDriversPublic } from '@/hooks/useDriversPublic';
 import { useOrg } from '@/hooks/useOrg';
 import { isClosedStatus, useBookingStatus } from '@/hooks/useBookingStatus';
+import { telHref, whatsappHref } from '@/lib/contact';
+import { resolveHighlights } from '@/lib/fleetHighlights';
 import {
   clearSavedTrackingToken,
   clearTrackingTokenFromUrl,
@@ -17,14 +20,21 @@ import {
 
 type View = 'home' | 'booking' | 'track';
 
-export function CustomerHome() {
+interface CustomerHomeProps {
+  /** Quiet sign-in links at the foot of the page. Left out for signed-in staff, who have their own switcher. */
+  staffLinks?: { onDriver: () => void; onOwner: () => void };
+}
+
+const clean = (value: string | null | undefined) => value?.trim() || null;
+
+export function CustomerHome({ staffLinks }: CustomerHomeProps = {}) {
   // A tracking link (?track=<token>) opens the live map straight away.
   const [trackToken, setTrackToken] = useState<string | null>(() => readTrackingTokenFromUrl());
   const [view, setView] = useState<View>(() => (readTrackingTokenFromUrl() ? 'track' : 'home'));
   const [savedToken] = useState<string | null>(() => readSavedTrackingToken());
   const [repeatData, setRepeatData] = useState<typeof lastBooking>(null);
   const { org } = useOrg();
-  const { data: routes = [], isLoading: routesLoading } = useFixedRoutes();
+  const { data: routes = [] } = useFixedRoutes();
   const { data: drivers = [] } = useDriversPublic();
   const { data: lastBooking } = useLastBooking();
 
@@ -55,36 +65,64 @@ export function CustomerHome() {
 
   if (view === 'booking') return <BookingFlow onBack={() => { setRepeatData(null); setView('home'); }} initialData={repeatData} />;
 
+  const brandName = clean(org?.brand_name);
+  const tagline = clean(org?.tagline);
+  const welcome = clean(org?.welcome_message);
+  const serviceArea = clean(org?.service_area);
+  const serviceHours = clean(org?.service_hours);
+  const highlights = resolveHighlights(org?.highlights);
+  const call = telHref(org?.support_phone);
+  const whatsapp = whatsappHref(org?.whatsapp_phone);
+  const listedRoutes = routes.filter(r => r.origin && r.destination);
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Hero */}
-      <div className="bg-primary px-6 pt-12 pb-10 rounded-b-[2rem]">
+      <div className="bg-primary px-6 pt-12 pb-8 rounded-b-xl">
         <div className="max-w-md mx-auto">
-          <div className="flex items-center gap-2 mb-1">
-            <Car className="h-5 w-5 text-secondary" />
-            <span className="text-sm font-semibold text-secondary tracking-wide uppercase">{org?.brand_name ?? 'FleetOs'}</span>
+          <div className="flex items-center gap-3 mb-6">
+            <FleetMark name={brandName} logoUrl={org?.brand_logo_url} size="md" />
+            {brandName && (
+              <span className="text-base font-semibold text-primary-foreground break-words min-w-0">{brandName}</span>
+            )}
           </div>
-          <h1 className="text-2xl font-bold text-primary-foreground mb-1">Where to?</h1>
-          <p className="text-primary-foreground/70 text-sm">Your most reliable rides</p>
+          <h1 className="text-2xl font-bold text-primary-foreground">Where to?</h1>
+          {tagline && <p className="mt-1 text-sm text-primary-foreground/80">{tagline}</p>}
+          {freeCount > 0 && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-primary-foreground/80">
+              <span className="h-2 w-2 rounded-full bg-success animate-pulse-dot" aria-hidden />
+              {freeCount === 1 ? '1 car available now' : `${freeCount} cars available now`}
+            </p>
+          )}
 
           <div className="mt-6 space-y-3">
-            {lastBooking && (
-              <button onClick={() => { setRepeatData(lastBooking); setView('booking'); }} className="w-full text-left bg-primary-foreground/10 rounded-xl p-4 flex items-center justify-between gap-3 mb-3 border border-primary-foreground/20">
-                <div>
-                  <p className="text-xs text-primary-foreground/60 mb-1">Book again</p>
-                  <p className="text-sm font-semibold text-primary-foreground">{tripTypeIcons[lastBooking.trip_type ?? 'city']} {lastBooking.pickup} → {lastBooking.drop}</p>
-                  <p className="text-xs text-primary-foreground/50">₹{lastBooking.fare?.toLocaleString('en-IN')} · {new Date(lastBooking.scheduled_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+            {lastBooking?.pickup && lastBooking.drop && (
+              <button
+                onClick={() => { setRepeatData(lastBooking); setView('booking'); }}
+                className="w-full min-h-[56px] text-left bg-primary-foreground/10 rounded-xl p-4 flex items-center justify-between gap-3 border border-primary-foreground/20"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs text-primary-foreground/80 mb-1">Book again</p>
+                  <p className="text-sm font-semibold text-primary-foreground flex items-center gap-2">
+                    <TripTypeIcon type={lastBooking.trip_type ?? 'city'} className="h-4 w-4" />
+                    <span className="truncate">{lastBooking.pickup} to {lastBooking.drop}</span>
+                  </p>
+                  {lastBooking.fare != null && (
+                    <p className="text-xs text-primary-foreground/80 mt-1">
+                      ₹{lastBooking.fare.toLocaleString('en-IN')} · {new Date(lastBooking.scheduled_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </p>
+                  )}
                 </div>
-                <ChevronRight className="h-5 w-5 text-primary-foreground/40 flex-shrink-0" />
+                <ChevronRight className="h-5 w-5 text-primary-foreground/80 shrink-0" />
               </button>
             )}
             <Button
               onClick={() => setView('booking')}
-              className="w-full h-14 bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-xl text-base font-semibold justify-between px-5"
+              className="w-full h-14 bg-primary-foreground text-primary hover:bg-primary-foreground/90 rounded-xl text-base font-semibold justify-between px-4"
             >
               <span className="flex items-center gap-3">
                 <Car className="h-5 w-5" />
-                Book a Ride
+                Book a ride
               </span>
               <ChevronRight className="h-5 w-5" />
             </Button>
@@ -92,107 +130,120 @@ export function CustomerHome() {
         </div>
       </div>
 
-      {savedToken && savedBooking && !savedBookingClosed && (
-        <div className="max-w-md mx-auto px-6 -mt-4 mb-8 relative z-10">
+      <div className="max-w-md w-full mx-auto px-6 pt-8 pb-8 space-y-8 flex-1">
+        {savedToken && savedBooking && !savedBookingClosed && (
           <button
             onClick={() => { setTrackToken(savedToken); setView('track'); }}
-            className="w-full text-left bg-card rounded-xl p-4 flex items-center justify-between gap-3 border shadow-elevated"
+            className="w-full min-h-[56px] text-left bg-card rounded-xl p-4 flex items-center justify-between gap-3 border"
           >
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-secondary/10 flex items-center justify-center">
-                <Navigation className="h-4 w-4 text-secondary" />
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Navigation className="h-5 w-5 text-primary" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-semibold">Track your ride</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground truncate">
                   {savedBooking.driver ? `${savedBooking.driver.name ?? 'Your driver'} is assigned` : 'Finding your driver'} · #{savedBooking.id}
                 </p>
               </div>
             </div>
-            <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+            <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
           </button>
-        </div>
-      )}
+        )}
 
-      {/* Quick Stats */}
-      <div className="max-w-md mx-auto px-6 -mt-4">
-        <Card className="p-4 shadow-elevated rounded-xl flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-success/10 flex items-center justify-center">
-              <div className="h-2.5 w-2.5 rounded-full bg-success animate-pulse-dot" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Cars available now</p>
-              <p className="text-lg font-bold">{freeCount}</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="flex items-center gap-1">
-              <Star className="h-3.5 w-3.5 fill-secondary text-secondary" />
-              <span className="text-sm font-semibold">4.7</span>
-            </div>
-            <p className="text-xs text-muted-foreground">Fleet rating</p>
-          </div>
-        </Card>
-      </div>
+        {welcome && <p className="text-base leading-relaxed text-foreground">{welcome}</p>}
 
-      {/* Popular Routes from fixed_routes */}
-      <div className="max-w-md mx-auto px-6 mt-8">
-        <h2 className="text-lg font-bold mb-4">Popular Routes</h2>
-        {routesLoading ? (
-          <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-        ) : routes.length === 0 ? (
-          <Card className="p-6 shadow-card rounded-xl text-center text-sm text-muted-foreground">No routes configured yet</Card>
-        ) : (
-          <div className="space-y-3">
-            {routes.map((route) => (
-              <Card
-                key={route.id}
-                className="p-4 shadow-card rounded-xl cursor-pointer hover:shadow-elevated transition-shadow"
-                onClick={() => setView('booking')}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="h-2 w-2 rounded-full bg-secondary" />
-                      <div className="w-px h-6 bg-border" />
-                      <MapPin className="h-3.5 w-3.5 text-destructive" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">{route.origin ?? '?'} → {route.destination ?? '?'}</p>
-                      {route.per_km_rate && <p className="text-xs text-muted-foreground">₹{route.per_km_rate}/km</p>}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold">₹{route.fixed_fare?.toLocaleString() ?? 'N/A'}</p>
-                    <p className="text-xs text-muted-foreground">est.</p>
-                  </div>
-                </div>
-              </Card>
+        {highlights.length > 0 && (
+          <ul className="grid grid-cols-2 gap-x-4 gap-y-3">
+            {highlights.map(h => (
+              <li key={h.id} className="flex items-start gap-2 text-sm text-foreground">
+                <h.icon className="h-4 w-4 mt-0.5 text-primary shrink-0" aria-hidden />
+                <span>{h.label}</span>
+              </li>
             ))}
+          </ul>
+        )}
+
+        {(serviceArea || serviceHours) && (
+          <div className="space-y-3 text-sm">
+            {serviceArea && (
+              <div className="flex items-start gap-3">
+                <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" aria-hidden />
+                <div>
+                  <p className="text-xs text-muted-foreground">Service area</p>
+                  <p className="text-foreground">{serviceArea}</p>
+                </div>
+              </div>
+            )}
+            {serviceHours && (
+              <div className="flex items-start gap-3">
+                <Clock className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" aria-hidden />
+                <div>
+                  <p className="text-xs text-muted-foreground">Hours</p>
+                  <p className="text-foreground">{serviceHours}</p>
+                </div>
+              </div>
+            )}
           </div>
+        )}
+
+        {listedRoutes.length > 0 && (
+          <section>
+            <h2 className="text-base font-semibold mb-3">Popular routes</h2>
+            <ul className="divide-y rounded-xl border bg-card">
+              {listedRoutes.map(route => (
+                <li key={route.id}>
+                  <button
+                    onClick={() => setView('booking')}
+                    className="w-full min-h-[56px] px-4 py-3 flex items-center justify-between gap-3 text-left"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold truncate">{route.origin} to {route.destination}</span>
+                      {route.per_km_rate ? <span className="block text-xs text-muted-foreground">₹{route.per_km_rate}/km</span> : null}
+                    </span>
+                    {route.fixed_fare != null && (
+                      <span className="text-sm font-semibold shrink-0">₹{route.fixed_fare.toLocaleString('en-IN')}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {(call || whatsapp) && (
+          <section>
+            <h2 className="text-base font-semibold mb-3">Need help?</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {call && (
+                <Button asChild variant="outline" className="h-12 rounded-xl">
+                  <a href={call}><Phone className="h-4 w-4" /> Call</a>
+                </Button>
+              )}
+              {whatsapp && (
+                <Button asChild variant="outline" className="h-12 rounded-xl">
+                  <a href={whatsapp} target="_blank" rel="noopener noreferrer"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
+                </Button>
+              )}
+            </div>
+          </section>
         )}
       </div>
 
-      {/* Recent */}
-      <div className="max-w-md mx-auto px-6 mt-8 pb-8">
-        <h2 className="text-lg font-bold mb-4">Recent Rides</h2>
-        <Card className="p-4 shadow-card rounded-xl">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-sm font-bold">🚗</div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold">C-Scheme → Malviya Nagar</p>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                <span>Yesterday, 6:30 PM</span>
-                <span>·</span>
-                <span>₹180</span>
-              </div>
-            </div>
-            <Button variant="ghost" size="sm" className="text-xs" onClick={() => setView('booking')}>Rebook</Button>
+      <footer className="max-w-md w-full mx-auto px-6 pb-8 text-center">
+        {staffLinks && (
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <button onClick={staffLinks.onDriver} className="min-h-[44px] px-3 underline-offset-4 hover:underline">
+              Driver sign-in
+            </button>
+            <span aria-hidden>·</span>
+            <button data-testid="open-login" onClick={staffLinks.onOwner} className="min-h-[44px] px-3 underline-offset-4 hover:underline">
+              Owner sign-in
+            </button>
           </div>
-        </Card>
-      </div>
+        )}
+        <p className="text-xs text-muted-foreground">Powered by FleetOs</p>
+      </footer>
     </div>
   );
 }

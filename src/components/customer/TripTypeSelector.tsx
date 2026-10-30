@@ -1,4 +1,4 @@
-import { Card } from '@/components/ui/card';
+import { tripTypeIcon } from '@/lib/tripTypeIcons';
 import { cn } from '@/lib/utils';
 
 export type TripType = 'local' | 'airport' | 'city_tour' | 'intercity' | 'multiday';
@@ -9,12 +9,12 @@ interface TripTypeSelectorProps {
   compact?: boolean;
 }
 
-const tripTypes: { id: TripType; emoji: string; label: string; desc: string }[] = [
-  { id: 'local', emoji: '🚗', label: 'Local Drop', desc: 'Point to point' },
-  { id: 'airport', emoji: '✈️', label: 'Airport', desc: 'Flight tracked' },
-  { id: 'city_tour', emoji: '🗺️', label: 'City Tour', desc: 'Multi-stop day' },
-  { id: 'intercity', emoji: '🛣️', label: 'Intercity', desc: 'One way / return' },
-  { id: 'multiday', emoji: '📅', label: 'Multi-day', desc: 'Driver stays with customer' },
+const tripTypes: { id: TripType; label: string; desc: string }[] = [
+  { id: 'local', label: 'Local drop', desc: 'Point to point' },
+  { id: 'airport', label: 'Airport', desc: 'Flight tracked' },
+  { id: 'city_tour', label: 'City tour', desc: 'Multi-stop day' },
+  { id: 'intercity', label: 'Intercity', desc: 'One way or return' },
+  { id: 'multiday', label: 'Multi-day', desc: 'Driver stays with you' },
 ];
 
 export const tripTypeConfig = tripTypes;
@@ -25,25 +25,26 @@ export function TripTypeSelector({ selected, onSelect, compact = false }: TripTy
       {tripTypes.map((t, i) => {
         const isActive = selected === t.id;
         const isLast = i === tripTypes.length - 1;
+        const Icon = tripTypeIcon(t.id);
         return (
-          <Card
+          <button
             key={t.id}
+            type="button"
             onClick={() => onSelect(t.id)}
+            aria-pressed={isActive}
             className={cn(
-              'cursor-pointer transition-all rounded-xl border-2 flex items-center',
-              compact ? 'p-3 gap-2' : 'p-5 flex-col gap-1',
+              'min-h-[44px] rounded-xl border bg-card text-card-foreground transition-colors flex items-center',
+              compact ? 'p-3 gap-2 text-left' : 'p-4 gap-2 flex-col text-center',
               isLast && !compact && 'col-span-2',
-              isActive
-                ? 'border-secondary bg-secondary/10 shadow-md'
-                : 'border-transparent hover:border-muted-foreground/20'
+              isActive ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
             )}
           >
-            <span className={compact ? 'text-xl' : 'text-3xl'}>{t.emoji}</span>
-            <div className={compact ? '' : 'text-center'}>
-              <p className={cn('font-bold', compact ? 'text-xs' : 'text-sm')}>{t.label}</p>
-              {!compact && <p className="text-xs text-muted-foreground">{t.desc}</p>}
-            </div>
-          </Card>
+            <Icon className={cn('text-primary', compact ? 'h-5 w-5' : 'h-6 w-6')} aria-hidden />
+            <span>
+              <span className={cn('block font-semibold', compact ? 'text-xs' : 'text-sm')}>{t.label}</span>
+              {!compact && <span className="block text-xs text-muted-foreground">{t.desc}</span>}
+            </span>
+          </button>
         );
       })}
     </div>

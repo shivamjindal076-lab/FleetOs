@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { MapPin, CalendarDays, Clock } from 'lucide-react';
+import { MapPin, CalendarDays, Clock, Info, Loader2, AlertCircle, Banknote, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { BookingFormData } from './BookingForm';
@@ -8,19 +8,18 @@ import { tripTypeConfig } from './TripTypeSelector';
 import { TripPreviewMap } from '@/components/maps/TripPreviewMap';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
 import { useOrg } from '@/hooks/useOrg';
 import { vehicleClassLabel } from '@/lib/dispatch';
 import { saveTrackingToken } from '@/lib/trackingStorage';
 import { TrackBooking } from './TrackBooking';
+import { TripTypeIcon } from '@/components/TripTypeIcon';
+import { acceptedPayments, pickPayment, PAYMENT_LABELS, type PaymentMethodId } from '@/lib/fleetDisplay';
 
 interface BookingSummaryProps {
   data: BookingFormData;
   onEdit: () => void;
   onDone: () => void;
 }
-
-type PaymentMethod = 'cash' | 'upi' | 'card';
 
 const tripTypeToDb: Record<string, string> = {
   local: 'city',
@@ -63,12 +62,17 @@ function bookingRequest(data: BookingFormData) {
 }
 
 export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
-  const [payment, setPayment] = useState<PaymentMethod>('cash');
+  const [chosenPayment, setChosenPayment] = useState<PaymentMethodId | null>(null);
+  const [submitError, setSubmitError] = useState<{ title: string; detail: string | null } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Private token from create_customer_booking; customers can't read the bookings table directly.
   const [trackingToken, setTrackingToken] = useState<string | null>(null);
-  const { toast } = useToast();
   const { org } = useOrg();
+
+  // Payment follows what the fleet accepts. One method is shown as a fact, not a choice.
+  const acceptedMethods = acceptedPayments(org?.payment_methods);
+  const payment = pickPayment(acceptedMethods, chosenPayment);
+  const cancellationNote = org?.cancellation_note?.trim() || null;
 
   const tripInfo = tripTypeConfig.find((t) => t.id === data.tripType);
   const request = bookingRequest(data);
@@ -96,9 +100,10 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
 
   const handleConfirm = async () => {
     setSubmitting(true);
+    setSubmitError(null);
     try {
       if (!org?.id) {
-        throw new Error('Organisation not loaded yet. Refresh and try again.');
+        throw new Error('Fleet details are still loading. Try again in a moment.');
       }
 
       const payload = { ...request, payment_method: payment };
@@ -107,13 +112,16 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
       const { data: rows, error } = await db.rpc('create_customer_booking', { p_org_id: org.id, p_booking: payload });
       if (error) throw error;
       const created = rows?.[0];
-      if (!created?.booking_id) throw new Error('The booking was not saved. Please try again.');
+      if (!created?.booking_id) throw new Error("The booking wasn't saved. Try again.");
       // Keep the token so the live map can be reopened later from this device.
       saveTrackingToken(created.booking_token);
       setTrackingToken(created.booking_token);
     } catch (err: any) {
       console.error('Booking error:', err);
-      toast({ title: 'Booking failed', description: err.message, variant: 'destructive' });
+      setSubmitError({
+        title: "Couldn't confirm your booking",
+        detail: typeof err?.message === 'string' && err.message ? err.message : 'Check your connection and try again.',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -133,8 +141,9 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
   return (
     <div className="space-y-4 animate-slide-up">
       <div className="flex items-center gap-2">
-        <span className="px-3 py-1 bg-secondary/10 text-secondary-foreground text-xs font-bold rounded-full border border-secondary">
-          {tripInfo?.emoji} {tripInfo?.label}
+        <span className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 text-primary text-xs font-semibold rounded-full">
+          <TripTypeIcon type={data.tripType} className="h-4 w-4" />
+          {tripInfo?.label}
         </span>
       </div>
 
@@ -147,7 +156,7 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
         mapClassName="h-[260px]"
       />
 
-      <Card className="p-5 shadow-elevated rounded-xl">
+      <Card className="p-4 shadow-card rounded-xl">
         <div className="flex items-center gap-3 mb-4">
           <div className="flex flex-col items-center">
             <div className="h-2.5 w-2.5 rounded-full bg-success" />
@@ -198,49 +207,74 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
         </div>
       </Card>
 
-      <Card className="p-5 shadow-elevated rounded-xl">
+      <Card className="p-4 shadow-card rounded-xl">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm text-muted-foreground">Estimated Fare</span>
+          <span className="text-sm text-muted-foreground">Estimated fare</span>
           <span className="text-2xl font-bold">{fare !== undefined ? `₹${fare.toLocaleString()}` : fareFailed ? 'Unavailable' : '…'}</span>
         </div>
         <p className="text-xs text-muted-foreground">Final fare may vary based on route and stops</p>
       </Card>
 
       <div>
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Payment method</p>
-        <div className="flex gap-2">
-          {([
-            { id: 'cash' as PaymentMethod, label: 'Cash' },
-            { id: 'upi' as PaymentMethod, label: 'UPI' },
-            { id: 'card' as PaymentMethod, label: 'Card' },
-          ]).map((paymentMethod) => (
-            <button
-              key={paymentMethod.id}
-              onClick={() => setPayment(paymentMethod.id)}
-              className={cn(
-                'flex-1 py-2.5 rounded-lg text-xs font-semibold border transition',
-                payment === paymentMethod.id
-                  ? 'bg-secondary text-secondary-foreground border-secondary'
-                  : 'bg-card text-muted-foreground border-border'
-              )}
-            >
-              {paymentMethod.label}
-            </button>
-          ))}
-        </div>
+        {acceptedMethods.length === 1 ? (
+          <p className="flex items-center gap-2 text-sm text-foreground">
+            {payment === 'upi' ? <Smartphone className="h-4 w-4 text-muted-foreground" /> : <Banknote className="h-4 w-4 text-muted-foreground" />}
+            Pay {PAYMENT_LABELS[payment]} to your driver
+          </p>
+        ) : (
+          <>
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Payment method</p>
+            <div className="flex gap-2">
+              {acceptedMethods.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={payment === id}
+                  onClick={() => setChosenPayment(id)}
+                  className={cn(
+                    'flex-1 h-11 rounded-lg text-sm font-semibold border transition flex items-center justify-center gap-2',
+                    payment === id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-card text-muted-foreground border-border'
+                  )}
+                >
+                  {id === 'upi' ? <Smartphone className="h-4 w-4" /> : <Banknote className="h-4 w-4" />}
+                  {PAYMENT_LABELS[id]}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
+      {cancellationNote && (
+        <p className="flex items-start gap-2 text-sm text-muted-foreground">
+          <Info className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
+          <span>{cancellationNote}</span>
+        </p>
+      )}
+
+      {submitError && (
+        <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" aria-hidden />
+          <div>
+            <p className="font-semibold text-destructive">{submitError.title}</p>
+            {submitError.detail && <p className="text-muted-foreground">{submitError.detail}</p>}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-3">
-        <Button variant="outline" onClick={onEdit} className="flex-1 h-12 rounded-xl font-semibold">
-          Back to edit
+        <Button variant="outline" onClick={onEdit} disabled={submitting} className="flex-1 h-12 rounded-xl font-semibold">
+          Edit
         </Button>
-        <button
+        <Button
           onClick={handleConfirm}
           disabled={submitting}
-          className="flex-1 h-12 kinetic-gradient text-white rounded-xl font-bold font-display disabled:opacity-60 transition-opacity hover:opacity-90"
+          className="flex-1 h-12 rounded-xl font-semibold"
         >
-          {submitting ? 'Saving...' : 'Confirm Booking'}
-        </button>
+          {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Confirming</> : submitError ? 'Try again' : 'Confirm booking'}
+        </Button>
       </div>
     </div>
   );
