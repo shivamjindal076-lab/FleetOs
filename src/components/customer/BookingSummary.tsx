@@ -152,10 +152,12 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
         </div>
 
         {/* Car size */}
-        <div className="cu-card p-5">
+        <div className="cu-card col-span-2 flex items-center gap-3 p-5">
           <Car className="h-5 w-5 text-primary" aria-hidden />
-          <p className="mt-3 text-xs text-muted-foreground">Car size</p>
-          <p className="text-sm font-semibold">{vehicleClassLabel[data.vehicleClass]}</p>
+          <div>
+            <p className="text-xs text-muted-foreground">Car size</p>
+            <p className="text-sm font-semibold">{vehicleClassLabel[data.vehicleClass]}</p>
+          </div>
         </div>
 
         {/* Payment */}
