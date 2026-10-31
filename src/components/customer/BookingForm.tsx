@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, Minus, X, GripVertical, PlaneLanding, PlaneTakeoff, ChevronRight } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Plus, Minus, X, GripVertical, PlaneLanding, PlaneTakeoff, ChevronRight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -8,6 +8,8 @@ import { TripType } from './TripTypeSelector';
 import { TripPreviewMap } from '@/components/maps/TripPreviewMap';
 import { cn } from '@/lib/utils';
 import type { VehicleClass } from '@/lib/dispatch';
+import { validateBooking, firstErrorField, type BookingField } from '@/lib/bookingValidation';
+import { FareEstimate } from './FareEstimate';
 
 export interface BookingFormData {
   pickup: string;
@@ -61,9 +63,50 @@ interface BookingFormProps {
   data: BookingFormData;
   onChange: (data: BookingFormData) => void;
   onNext: () => void;
+  /** True while name and phone come from this device's saved details. */
+  detailsPrefilled?: boolean;
+  onClearDetails?: () => void;
 }
 
-export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <p id={id} role="alert" className="mt-1 flex items-center gap-1 text-xs text-destructive">
+      <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      {message}
+    </p>
+  );
+}
+
+export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, onClearDetails }: BookingFormProps) {
+  const formRef = useRef<HTMLDivElement>(null);
+  const [tried, setTried] = useState(false);
+  // Errors show after the first Next tap, and each one clears as soon as its field is fixed.
+  const errors = tried ? validateBooking(data) : {};
+  const invalid = 'border-destructive focus-visible:ring-destructive';
+
+  const focusField = (field: BookingField) => {
+    // Wait a frame so the error text is in the page before scrolling.
+    requestAnimationFrame(() => {
+      const box = formRef.current?.querySelector<HTMLElement>(`[data-field="${field}"]`);
+      if (!box) return;
+      const inputs = box.querySelectorAll<HTMLElement>('input, textarea');
+      const target = field === 'when' && data.date ? inputs[1] : inputs[0];
+      box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target?.focus({ preventScroll: true });
+    });
+  };
+
+  const handleNext = () => {
+    const first = firstErrorField(validateBooking(data));
+    if (!first) {
+      onNext();
+      return;
+    }
+    setTried(true);
+    focusField(first);
+  };
+
   const update = (partial: Partial<BookingFormData>) => onChange({ ...data, ...partial });
   // A 4-seater only takes four passengers, so a bigger group is moved to the 6-seater.
   const setPassengers = (count: number) =>
@@ -95,29 +138,18 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
     update({ stops: newStops });
   };
 
-  const isValid = () => {
-    if (!data.date || !data.time) return false;
-    if (new Date(`${data.date}T${data.time}`) <= new Date()) return false;
-    if (!data.customerName.trim() || data.customerPhone.length < 10) return false;
-    switch (data.tripType) {
-      case 'local': return !!(data.pickup && data.drop);
-      case 'airport': return !!(data.pickup);
-      case 'city_tour': return !!(data.pickup);
-      case 'intercity': return !!(data.pickup && data.drop);
-      case 'multiday': return !!(data.pickup && data.drop);
-      default: return false;
-    }
-  };
-
   return (
-    <Card className="p-4 shadow-card rounded-xl animate-slide-up space-y-4">
+    <Card ref={formRef} className="p-4 shadow-card rounded-xl animate-slide-up space-y-4">
       {/* Common: Pickup */}
-      <LocationInput
-        value={data.pickup}
-        onChange={(v) => update({ pickup: v })}
-        placeholder={data.tripType === 'airport' ? 'Your address' : 'Pickup location'}
-        icon="pickup"
-      />
+      <div data-field="pickup">
+        <LocationInput
+          value={data.pickup}
+          onChange={(v) => update({ pickup: v })}
+          placeholder={data.tripType === 'airport' ? 'Your address' : 'Pickup location'}
+          icon="pickup"
+        />
+        <FieldError id="err-pickup" message={errors.pickup} />
+      </div>
 
       {/* Airport-specific */}
       {data.tripType === 'airport' && (
@@ -155,12 +187,15 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
 
       {/* Drop (local, intercity, multiday) */}
       {['local', 'intercity', 'multiday'].includes(data.tripType) && (
-        <LocationInput
-          value={data.drop}
-          onChange={(v) => update({ drop: v })}
-          placeholder={data.tripType === 'local' ? 'Drop location' : 'Destination city'}
-          icon="drop"
-        />
+        <div data-field="drop">
+          <LocationInput
+            value={data.drop}
+            onChange={(v) => update({ drop: v })}
+            placeholder={data.tripType === 'local' ? 'Drop location' : 'Destination city'}
+            icon="drop"
+          />
+          <FieldError id="err-drop" message={errors.drop} />
+        </div>
       )}
 
       {/* City Tour — stops */}
@@ -382,16 +417,20 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
 
       {/* Customer details */}
       <div className="space-y-3">
-        <div>
+        <div data-field="name">
           <label className="text-xs text-muted-foreground mb-1 block">Your name</label>
           <Input
             placeholder="Full name"
             value={data.customerName}
+            autoComplete="name"
+            aria-invalid={!!errors.name}
+            aria-describedby={errors.name ? 'err-name' : undefined}
             onChange={(e) => update({ customerName: e.target.value })}
-            className="h-12 rounded-lg"
+            className={cn('h-12 rounded-lg', errors.name && invalid)}
           />
+          <FieldError id="err-name" message={errors.name} />
         </div>
-        <div>
+        <div data-field="phone">
           <label className="text-xs text-muted-foreground mb-1 block">Mobile number</label>
           <div className="flex gap-2">
             <div className="flex items-center justify-center px-3 bg-muted rounded-lg text-sm font-medium text-muted-foreground border">
@@ -402,11 +441,25 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
               maxLength={10}
               placeholder="9876543210"
               value={data.customerPhone}
+              inputMode="numeric"
+              autoComplete="tel-national"
+              aria-invalid={!!errors.phone}
+              aria-describedby={errors.phone ? 'err-phone' : undefined}
               onChange={(e) => update({ customerPhone: e.target.value.replace(/\D/g, '') })}
-              className="h-12 rounded-lg"
+              className={cn('h-12 rounded-lg', errors.phone && invalid)}
             />
           </div>
+          <FieldError id="err-phone" message={errors.phone} />
         </div>
+        {detailsPrefilled && onClearDetails && (
+          <button
+            type="button"
+            onClick={onClearDetails}
+            className="min-h-[44px] text-xs text-muted-foreground underline underline-offset-2"
+          >
+            Not you? Clear details
+          </button>
+        )}
       </div>
 {/* Notes for driver */}
       <div>
@@ -427,6 +480,7 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
         const minDate = now.toISOString().split('T')[0];
         const minTime = now.toTimeString().slice(0, 5);
         return (
+          <div data-field="when">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Date</label>
@@ -435,8 +489,10 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
                 value={data.date}
                 min={minDate}
                 placeholder={minDate}
+                aria-invalid={!!errors.when}
+                aria-describedby={errors.when ? 'err-when' : undefined}
                 onChange={(e) => update({ date: e.target.value })}
-                className="h-12 rounded-lg"
+                className={cn('h-12 rounded-lg', errors.when && invalid)}
               />
             </div>
             <div>
@@ -446,10 +502,14 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
               <Input
                 type="time"
                 value={data.time}
+                aria-invalid={!!errors.when}
+                aria-describedby={errors.when ? 'err-when' : undefined}
                 onChange={(e) => update({ time: e.target.value })}
-                className="h-12 rounded-lg"
+                className={cn('h-12 rounded-lg', errors.when && invalid)}
               />
             </div>
+          </div>
+          <FieldError id="err-when" message={errors.when} />
           </div>
         );
       })()}
@@ -462,9 +522,12 @@ export function BookingForm({ data, onChange, onNext }: BookingFormProps) {
         </p>
       )}
 
+      <div className="rounded-lg bg-muted/50 p-4">
+        <FareEstimate data={data} />
+      </div>
+
       <Button
-        onClick={onNext}
-        disabled={!isValid()}
+        onClick={handleNext}
         className="w-full h-12 rounded-xl font-semibold justify-between px-4"
       >
         Next

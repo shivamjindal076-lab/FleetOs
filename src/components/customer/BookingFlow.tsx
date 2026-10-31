@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useOrg } from '@/hooks/useOrg';
+import { readSavedCustomer, clearSavedCustomer } from '@/lib/savedCustomer';
 import { ArrowLeft } from 'lucide-react';
 import { TripTypeSelector, TripType } from './TripTypeSelector';
 import { BookingForm, BookingFormData, defaultFormData } from './BookingForm';
@@ -48,6 +50,24 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
     }
     return base;
   });
+  const { org } = useOrg();
+  const [detailsPrefilled, setDetailsPrefilled] = useState(false);
+
+  // Fill name and phone from this device once the fleet is known, unless the customer has typed.
+  useEffect(() => {
+    const saved = readSavedCustomer(org?.id);
+    if (!saved) return;
+    setFormData(prev => (prev.customerName || prev.customerPhone)
+      ? prev
+      : { ...prev, customerName: saved.name, customerPhone: saved.phone });
+    setDetailsPrefilled(true);
+  }, [org?.id]);
+
+  const clearDetails = () => {
+    clearSavedCustomer(org?.id);
+    setFormData(prev => ({ ...prev, customerName: '', customerPhone: '' }));
+    setDetailsPrefilled(false);
+  };
  const handleTypeSelect = (type: TripType) => {
     const now = new Date();
     now.setMinutes(now.getMinutes() + 15);
@@ -56,6 +76,8 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
     setFormData({
       ...defaultFormData,
       tripType: type,
+      customerName: formData.customerName,
+      customerPhone: formData.customerPhone,
       date: localDate,
       time: localTime,
     });
@@ -109,6 +131,8 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
             data={formData}
             onChange={setFormData}
             onNext={() => setStep('summary')}
+            detailsPrefilled={detailsPrefilled}
+            onClearDetails={clearDetails}
           />
         )}
 

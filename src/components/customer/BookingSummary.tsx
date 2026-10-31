@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { MapPin, CalendarDays, Clock, Info, Loader2, AlertCircle, Banknote, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -11,6 +10,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { useOrg } from '@/hooks/useOrg';
 import { vehicleClassLabel } from '@/lib/dispatch';
 import { saveTrackingToken } from '@/lib/trackingStorage';
+import { bookingRequest, tripEnds } from '@/lib/bookingRequest';
+import { saveCustomer } from '@/lib/savedCustomer';
+import { FareEstimate } from './FareEstimate';
 import { TrackBooking } from './TrackBooking';
 import { TripTypeIcon } from '@/components/TripTypeIcon';
 import { acceptedPayments, pickPayment, PAYMENT_LABELS, type PaymentMethodId } from '@/lib/fleetDisplay';
@@ -19,46 +21,6 @@ interface BookingSummaryProps {
   data: BookingFormData;
   onEdit: () => void;
   onDone: () => void;
-}
-
-const tripTypeToDb: Record<string, string> = {
-  local: 'city',
-  city_tour: 'sightseeing',
-  intercity: 'outstation',
-  multiday: 'outstation',
-  airport: 'airport',
-};
-
-// The booking request sent to the database. The fare is not part of it: quote_fare() and
-// create_customer_booking() compute it from the fleet's rate card.
-function bookingRequest(data: BookingFormData) {
-  // No date means "now"; the database fills that in, which also keeps this request stable
-  // between renders so the fare quote isn't refetched on every render.
-  const scheduledAt = data.date && data.time
-    ? new Date(`${data.date}T${data.time}`).toISOString()
-    : null;
-
-  return {
-    customer_name: data.customerName || null,
-    customer_phone: data.customerPhone
-      ? '+91' + data.customerPhone.replace(/\D/g, '').slice(-10)
-      : null,
-    pickup: data.pickup,
-    drop: data.tripType === 'city_tour' ? (data.stops[0] || null) : data.drop,
-    scheduled_at: scheduledAt,
-    trip_type: tripTypeToDb[data.tripType] ?? data.tripType,
-    vehicle_class: data.vehicleClass,
-    notes: data.notes?.trim() || null,
-    stops: data.tripType === 'city_tour' && data.stops.length > 0
-      ? JSON.stringify(data.stops)
-      : null,
-    estimated_hours: data.tripType === 'city_tour' ? data.estimatedHours : null,
-    return_date: data.isRoundTrip && data.returnDate
-      ? new Date(data.returnDate).toISOString()
-      : null,
-    number_of_days: (data.tripType === 'multiday' || data.tripType === 'intercity') ? data.numberOfDays : null,
-    driver_stay_required: data.tripType === 'multiday' ? data.driverStayRequired : null,
-  };
 }
 
 export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
@@ -76,24 +38,9 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
 
   const tripInfo = tripTypeConfig.find((t) => t.id === data.tripType);
   const request = bookingRequest(data);
-  const { data: fare, isError: fareFailed } = useQuery({
-    queryKey: ['fare-quote', org?.id, request],
-    enabled: !!org?.id,
-    queryFn: async () => {
-      const { data: quote, error } = await supabase.rpc('quote_fare', { p_org_id: org!.id, p_booking: request });
-      if (error) throw error;
-      return Number(quote);
-    },
-  });
-  const airportTerminal = `${data.hubCity || 'City'} Airport`;
-  const previewPickup = data.tripType === 'airport' && data.airportDirection === 'arriving'
-    ? airportTerminal
-    : data.pickup;
-  const previewDrop = data.tripType === 'airport'
-    ? data.airportDirection === 'arriving'
-      ? data.pickup
-      : airportTerminal
-    : data.drop;
+  const ends = tripEnds(data);
+  const previewPickup = ends.pickup;
+  const previewDrop = ends.drop;
   const previewStops = data.tripType === 'city_tour'
     ? data.stops.filter(stop => stop.trim().length > 0)
     : [];
@@ -116,6 +63,7 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
       // Keep the token so the live map can be reopened later from this device.
       saveTrackingToken(created.booking_token);
       setTrackingToken(created.booking_token);
+      saveCustomer(org.id, data.customerName, data.customerPhone);
     } catch (err: any) {
       console.error('Booking error:', err);
       setSubmitError({
@@ -166,7 +114,7 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
           <div className="flex-1 space-y-3">
             <div>
               <p className="text-xs text-muted-foreground">Pickup</p>
-              <p className="text-sm font-semibold">{data.pickup}</p>
+              <p className="text-sm font-semibold">{previewPickup}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">
@@ -179,7 +127,7 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm font-semibold">{data.drop || '-'}</p>
+                <p className="text-sm font-semibold">{previewDrop || '-'}</p>
               )}
             </div>
           </div>
@@ -208,11 +156,7 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
       </Card>
 
       <Card className="p-4 shadow-card rounded-xl">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-sm text-muted-foreground">Estimated fare</span>
-          <span className="text-2xl font-bold">{fare !== undefined ? `₹${fare.toLocaleString()}` : fareFailed ? 'Unavailable' : '…'}</span>
-        </div>
-        <p className="text-xs text-muted-foreground">Final fare may vary based on route and stops</p>
+        <FareEstimate data={data} />
       </Card>
 
       <div>

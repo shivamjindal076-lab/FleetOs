@@ -11,10 +11,10 @@ interface TripTypeSelectorProps {
 
 const tripTypes: { id: TripType; label: string; desc: string }[] = [
   { id: 'local', label: 'Local drop', desc: 'Point to point' },
-  { id: 'airport', label: 'Airport', desc: 'Flight tracked' },
+  { id: 'airport', label: 'Airport', desc: 'To or from the airport' },
   { id: 'city_tour', label: 'City tour', desc: 'Multi-stop day' },
   { id: 'intercity', label: 'Intercity', desc: 'One way or return' },
-  { id: 'multiday', label: 'Multi-day', desc: 'Driver stays with you' },
+  { id: 'multiday', label: 'Multi-day', desc: 'Several days away' },
 ];
 
 export const tripTypeConfig = tripTypes;
