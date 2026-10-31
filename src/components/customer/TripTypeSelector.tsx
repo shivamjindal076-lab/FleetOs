@@ -11,10 +11,10 @@ interface TripTypeSelectorProps {
 
 const tripTypes: { id: TripType; label: string; desc: string }[] = [
   { id: 'local', label: 'Local drop', desc: 'Point to point' },
-  { id: 'airport', label: 'Airport', desc: 'Flight tracked' },
+  { id: 'airport', label: 'Airport', desc: 'To or from the airport' },
   { id: 'city_tour', label: 'City tour', desc: 'Multi-stop day' },
   { id: 'intercity', label: 'Intercity', desc: 'One way or return' },
-  { id: 'multiday', label: 'Multi-day', desc: 'Driver stays with you' },
+  { id: 'multiday', label: 'Multi-day', desc: 'Several days away' },
 ];
 
 export const tripTypeConfig = tripTypes;
@@ -22,9 +22,9 @@ export const tripTypeConfig = tripTypes;
 export function TripTypeSelector({ selected, onSelect, compact = false }: TripTypeSelectorProps) {
   return (
     <div className={cn('grid grid-cols-2 gap-3', compact && 'gap-2')}>
-      {tripTypes.map((t, i) => {
+      {tripTypes.map(t => {
         const isActive = selected === t.id;
-        const isLast = i === tripTypes.length - 1;
+        const wide = t.id === 'local' && !compact;
         const Icon = tripTypeIcon(t.id);
         return (
           <button
@@ -33,16 +33,18 @@ export function TripTypeSelector({ selected, onSelect, compact = false }: TripTy
             onClick={() => onSelect(t.id)}
             aria-pressed={isActive}
             className={cn(
-              'min-h-[44px] rounded-xl border bg-card text-card-foreground transition-colors flex items-center',
-              compact ? 'p-3 gap-2 text-left' : 'p-4 gap-2 flex-col text-center',
-              isLast && !compact && 'col-span-2',
-              isActive ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+              'cu-card flex min-h-[44px] text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              compact ? 'items-center gap-2 p-3' : wide ? 'items-center gap-4 p-5' : 'flex-col justify-between gap-6 p-5',
+              wide && 'col-span-2',
+              isActive ? 'cu-tint border-primary' : 'hover:border-primary/40',
             )}
           >
-            <Icon className={cn('text-primary', compact ? 'h-5 w-5' : 'h-6 w-6')} aria-hidden />
-            <span>
-              <span className={cn('block font-semibold', compact ? 'text-xs' : 'text-sm')}>{t.label}</span>
-              {!compact && <span className="block text-xs text-muted-foreground">{t.desc}</span>}
+            <span className={cn('cu-icon-btn bg-primary text-primary-foreground', compact && '!h-10 !w-10')}>
+              <Icon className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="min-w-0">
+              <span className={cn('cu-serif block', compact ? 'text-sm' : 'text-xl')}>{t.label}</span>
+              {!compact && <span className="mt-1 block text-sm text-muted-foreground">{t.desc}</span>}
             </span>
           </button>
         );

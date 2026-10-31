@@ -103,7 +103,7 @@ function Chip({ selected, disabled, onClick, children }: { selected: boolean; di
 }
 
 function ImageUpload({ label, hint, value, onChange, orgId, prefix }: {
-  label: string; hint: string; value: string; onChange: (url: string) => void; orgId: string; prefix: 'logo' | 'upi-qr';
+  label: string; hint: string; value: string; onChange: (url: string) => void; orgId: string; prefix: 'logo' | 'upi-qr' | 'cover';
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -132,8 +132,11 @@ function ImageUpload({ label, hint, value, onChange, orgId, prefix }: {
     <div className="space-y-2">
       <Label>{label}</Label>
       <div className="flex items-center gap-4">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-input bg-muted">
-          {value ? <img src={value} alt="" className="h-full w-full object-contain" /> : <Upload className="h-5 w-5 text-muted-foreground" />}
+        <div className={cn(
+          'flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-input bg-muted',
+          prefix === 'cover' ? 'h-16 w-24' : 'h-16 w-16',
+        )}>
+          {value ? <img src={value} alt="" className={cn('h-full w-full', prefix === 'cover' ? 'object-cover' : 'object-contain')} /> : <Upload className="h-5 w-5 text-muted-foreground" />}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
@@ -193,6 +196,9 @@ function HeaderPreview({ form }: { form: SettingsForm }) {
     <div className="space-y-2">
       <p className="text-sm font-semibold text-foreground">Preview</p>
       <div className="overflow-hidden rounded-xl border border-border bg-card">
+        {form.cover_image_url && (
+          <img src={form.cover_image_url} alt="" className="aspect-[16/7] w-full object-cover" />
+        )}
         <div className="flex items-center gap-3 px-4 py-3">
           {form.brand_logo_url ? (
             <img src={form.brand_logo_url} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain" />
@@ -311,6 +317,8 @@ export function FleetSettings({ onOpenPricing }: FleetSettingsProps) {
               onChange={v => set('brand_name', v)} error={errors.brand_name} />
             <ImageUpload label="Logo" hint="PNG, JPG or WebP, up to 2 MB. A square image works best."
               value={form.brand_logo_url} onChange={v => set('brand_logo_url', v)} orgId={org.id} prefix="logo" />
+            <ImageUpload label="Cover photo" hint="Shown at the top of your booking page. PNG, JPG or WebP, up to 2 MB. A wide photo works best."
+              value={form.cover_image_url} onChange={v => set('cover_image_url', v)} orgId={org.id} prefix="cover" />
             <div className="space-y-2">
               <Label>Brand colour</Label>
               <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Brand colour">

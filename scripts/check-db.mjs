@@ -29,7 +29,7 @@ const denied = (res) => res.body?.code === '42501';
 const columns = {
   bookings: ['notes', 'driver_confirmed_at', 'tracking_token', 'vehicle_class'],
   organizations: ['upi_id', 'upi_qr_url', 'google_review_url', 'tagline', 'welcome_message', 'service_area', 'service_hours',
-    'support_phone', 'whatsapp_phone', 'cancellation_note', 'thank_you_message', 'highlights', 'payment_methods'],
+    'support_phone', 'whatsapp_phone', 'cancellation_note', 'thank_you_message', 'highlights', 'payment_methods', 'cover_image_url'],
   drivers: ['auth_user_id', 'odometer_start_photo', 'odometer_end_photo', 'location_updated_at', 'vehicle_class'],
   org_pricing: ['city_base_fare', 'outstation_per_day'],
   driver_cash_entries: ['kind', 'method', 'label', 'booking_id'],
