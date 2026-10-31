@@ -814,6 +814,7 @@ export type Database = {
           admin_user_id: string | null
           brand_color: string | null
           brand_logo_url: string | null
+          cover_image_url: string | null
           brand_name: string
           cancellation_note: string | null
           created_at: string | null
@@ -843,6 +844,7 @@ export type Database = {
           admin_user_id?: string | null
           brand_color?: string | null
           brand_logo_url?: string | null
+          cover_image_url?: string | null
           brand_name: string
           cancellation_note?: string | null
           created_at?: string | null
@@ -872,6 +874,7 @@ export type Database = {
           admin_user_id?: string | null
           brand_color?: string | null
           brand_logo_url?: string | null
+          cover_image_url?: string | null
           brand_name?: string
           cancellation_note?: string | null
           created_at?: string | null

@@ -117,3 +117,45 @@
   isolation: isolate;
   z-index: 0;
 }
+
+/* Customer screens only (home and booking). Everything is opt-in through cu-* classes, so admin,
+   driver and tracking screens keep their own radius and type. */
+.customer-ui {
+  --cu-radius: 24px;
+  --cu-page: 40 20% 97%;
+  background: hsl(var(--cu-page));
+  color: hsl(var(--foreground));
+}
+.dark .customer-ui { --cu-page: var(--background); }
+.customer-ui .cu-serif {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.customer-ui .cu-card {
+  border-radius: var(--cu-radius);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border) / 0.6);
+}
+.customer-ui .cu-tint {
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--foreground));
+}
+.customer-ui .cu-pill { border-radius: 9999px; }
+.customer-ui .cu-icon-btn {
+  display: inline-flex;
+  height: 48px;
+  width: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .customer-ui, .customer-ui * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

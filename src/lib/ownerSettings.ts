@@ -24,6 +24,7 @@ const UPI_PATTERN = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9]{1,63}$/;
 export interface SettingsForm {
   brand_name: string;
   brand_logo_url: string;
+  cover_image_url: string;
   brand_color: string;
   tagline: string;
   welcome_message: string;
@@ -49,6 +50,7 @@ export function formFromOrg(org: OrgConfig, driverInfo: OrgDriverInfo | null): S
   return {
     brand_name: org.brand_name ?? '',
     brand_logo_url: org.brand_logo_url ?? '',
+    cover_image_url: org.cover_image_url ?? '',
     brand_color: isHexColor(org.brand_color) ? org.brand_color.toUpperCase() : '',
     tagline: org.tagline ?? '',
     welcome_message: org.welcome_message ?? '',
@@ -122,6 +124,7 @@ export function toOrgUpdate(f: SettingsForm) {
   return {
     brand_name: f.brand_name.trim(),
     brand_logo_url: blank(f.brand_logo_url),
+    cover_image_url: blank(f.cover_image_url),
     brand_color: f.brand_color || null,
     tagline: blank(f.tagline),
     welcome_message: blank(f.welcome_message),

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useOrg } from '@/hooks/useOrg';
 import { readSavedCustomer, clearSavedCustomer } from '@/lib/savedCustomer';
 import { ArrowLeft } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { TripTypeSelector, TripType } from './TripTypeSelector';
 import { BookingForm, BookingFormData, defaultFormData } from './BookingForm';
 import { BookingSummary } from './BookingSummary';
@@ -87,39 +88,36 @@ const [formData, setFormData] = useState<BookingFormData>(() => {
   const stepIndex = step === 'type' ? 0 : step === 'form' ? 1 : 2;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="bg-primary px-6 pt-12 pb-6 rounded-b-xl">
-        <div className="max-w-md mx-auto">
+    <div className="customer-ui min-h-screen">
+      <header className="mx-auto max-w-md px-6 pt-8">
+        <div className="flex items-center justify-between gap-3">
           <button
+            type="button"
+            aria-label="Back"
             onClick={() => {
               if (step === 'type') onBack();
               else if (step === 'form') setStep('type');
               else setStep('form');
             }}
-            className="-ml-2 mb-4 flex min-h-[44px] items-center gap-2 px-2 text-primary-foreground/80"
+            className="cu-icon-btn cu-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ArrowLeft className="h-5 w-5" />
-            <span className="text-sm">Back</span>
+            <ArrowLeft className="h-5 w-5" aria-hidden />
           </button>
-          <h1 className="text-xl font-bold text-primary-foreground">{stepLabels[step]}</h1>
-          <p className="text-primary-foreground/80 text-sm mt-1">Step {stepIndex + 1} of 3</p>
-
-          {/* Progress dots */}
-          <div className="flex gap-1.5 mt-4">
-            {[0, 1, 2].map((i) => (
-              <div
+          <div className="flex items-center gap-2" role="img" aria-label={`Step ${stepIndex + 1} of 3`}>
+            {[0, 1, 2].map(i => (
+              <span
                 key={i}
-                className={`h-1.5 rounded-full transition-all ${
-                  i <= stepIndex ? 'bg-primary-foreground w-8' : 'bg-primary-foreground/30 w-4'
-                }`}
+                aria-hidden
+                className={cn('h-2.5 rounded-full transition-all', i === stepIndex ? 'w-6 bg-primary' : i < stepIndex ? 'w-2.5 bg-primary/60' : 'w-2.5 bg-primary/20')}
               />
             ))}
           </div>
+          <span className="w-12" aria-hidden />
         </div>
-      </div>
+        <h1 className="cu-serif mt-6 text-4xl">{stepLabels[step]}</h1>
+      </header>
 
-      <div className="max-w-md mx-auto px-6 pt-6 pb-8">
+      <div className="mx-auto max-w-md px-6 pb-32 pt-6">
         {step === 'type' && (
           <div className="animate-slide-up">
             <TripTypeSelector selected={formData.tripType} onSelect={handleTypeSelect} />

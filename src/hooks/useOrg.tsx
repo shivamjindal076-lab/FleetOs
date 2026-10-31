@@ -8,6 +8,7 @@ export interface OrgConfig {
   name: string;
   brand_name: string;
   brand_logo_url: string | null;
+  cover_image_url: string | null;
   brand_color: string | null;
   join_code: string;
   upi_id: string | null;
@@ -48,7 +49,7 @@ const OrgContext = createContext<OrgContextType>({
 // to this project. Override with VITE_DEFAULT_ORG_SLUG once a second fleet goes live.
 const DEFAULT_ORG_SLUG = import.meta.env.VITE_DEFAULT_ORG_SLUG || 'anilcabs';
 
-const ORG_COLUMNS = 'id, slug, name, brand_name, brand_logo_url, brand_color, join_code, upi_id, upi_qr_url, google_review_url, report_frequency_days, custom_domain, tagline, welcome_message, service_area, service_hours, support_phone, whatsapp_phone, cancellation_note, thank_you_message, highlights, payment_methods';
+const ORG_COLUMNS = 'id, slug, name, brand_name, brand_logo_url, cover_image_url, brand_color, join_code, upi_id, upi_qr_url, google_review_url, report_frequency_days, custom_domain, tagline, welcome_message, service_area, service_hours, support_phone, whatsapp_phone, cancellation_note, thank_you_message, highlights, payment_methods';
 
 function resolveSlugFromHostname(): { slug: string | null; customDomain: string | null } {
   const hostname = window.location.hostname;
