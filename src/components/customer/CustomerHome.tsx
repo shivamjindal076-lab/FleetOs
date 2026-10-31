@@ -79,6 +79,7 @@ export function CustomerHome({ staffLinks }: CustomerHomeProps = {}) {
   const heroText = coverUrl ? 'text-white' : 'text-primary-foreground';
   const heroSoft = coverUrl ? 'text-white/85' : 'text-primary-foreground/80';
   const hasBento = freeCount > 0 || !!serviceArea || !!serviceHours || highlights.length > 0 || !!welcome || !!(call || whatsapp);
+  const onlyCarsTile = freeCount > 0 && !serviceArea && !serviceHours && highlights.length === 0 && !welcome && !call && !whatsapp;
   // Hours and area share a row when both are set; a lone one takes the full row unless cars sit beside it.
   const hoursWide = !!serviceHours && freeCount === 0 && !serviceArea;
   const areaWide = !!serviceArea && ((freeCount > 0) === !!serviceHours);
@@ -173,13 +174,12 @@ export function CustomerHome({ staffLinks }: CustomerHomeProps = {}) {
         {hasBento && (
           <div className="grid grid-cols-2 gap-3">
             {freeCount > 0 && (
-              <div className="cu-card cu-tint p-5">
+              <div className={cn('cu-card cu-tint p-5', onlyCarsTile && 'col-span-2')}>
                 <span className="flex items-center gap-2 text-xs">
                   <span className="h-2 w-2 rounded-full bg-success animate-pulse-dot" aria-hidden />
-                  Cars available
+                  {freeCount === 1 ? 'Car available now' : 'Cars available now'}
                 </span>
                 <p className="cu-serif mt-2 text-5xl">{freeCount}</p>
-                <p className="text-xs">{freeCount === 1 ? '1 car available now' : `${freeCount} cars available now`}</p>
               </div>
             )}
             {serviceHours && (
