@@ -3,7 +3,7 @@ import { formFromOrg, imageProblem, isDirty, toDriverInfo, toOrgUpdate, validate
 import type { OrgConfig } from '@/hooks/useOrg';
 
 const org: OrgConfig = {
-  id: 'o1', slug: 'patil', name: 'Patil', brand_name: 'Patil Cabs', brand_logo_url: null, brand_color: null,
+  id: 'o1', slug: 'patil', name: 'Patil', brand_name: 'Patil Cabs', brand_logo_url: null, cover_image_url: null, brand_color: null,
   join_code: 'ABC123', upi_id: null, upi_qr_url: null, google_review_url: null, report_frequency_days: 7,
   tagline: null, welcome_message: null, service_area: null, service_hours: null, support_phone: null,
   whatsapp_phone: null, cancellation_note: null, thank_you_message: null, highlights: [],
@@ -51,6 +51,8 @@ describe('saving', () => {
     expect(u.tagline).toBe('Safe rides');
     expect(u.service_area).toBeNull();
     expect(u.brand_color).toBeNull();
+    expect(u.cover_image_url).toBeNull();
+    expect(toOrgUpdate({ ...base(), cover_image_url: 'https://x/c.jpg' }).cover_image_url).toBe('https://x/c.jpg');
     expect(toDriverInfo(base())).toEqual({ welcome_note: null, rules: null, office_phone: null });
   });
 

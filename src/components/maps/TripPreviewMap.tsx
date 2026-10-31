@@ -149,7 +149,7 @@ export function TripPreviewMap({
     ? { lat: firstResolved.lat!, lng: firstResolved.lng! }
     : JAIPUR_CENTER;
 
-  const { addMarker, containerRef, drawRoute, error, fitBounds, isLoaded, providerLabel, removeRoute } = useOlaMaps(defaultCenter, 12);
+  const { addMarker, containerRef, drawRoute, error, fitBounds, isLoaded, removeRoute } = useOlaMaps(defaultCenter, 12);
 
   useEffect(() => {
     let cancelled = false;
@@ -272,7 +272,7 @@ export function TripPreviewMap({
       if (cancelled) return;
 
       setRouteDistanceKm(distanceKm > 0 ? distanceKm : null);
-      setRouteProvider(providers.size > 0 ? `${Array.from(providers).join(' + ')} route` : 'Marker preview');
+      setRouteProvider(providers.size > 0 ? 'Route ready' : 'Route preview unavailable');
     };
 
     void drawSegments();
@@ -331,23 +331,22 @@ export function TripPreviewMap({
         <div className="absolute left-4 top-4 z-10 max-w-[85%] rounded-2xl border border-white/70 bg-white/92 px-4 py-3 shadow-lg backdrop-blur-md">
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">{title}</p>
           <p className="mt-1 text-sm font-semibold text-slate-950">{subtitle}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-600">
-            <span className="rounded-full bg-slate-100 px-2.5 py-1">{providerLabel}</span>
-            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{routeProvider}</span>
-          </div>
+          {!routeDistanceKm && <p className="mt-1 text-xs text-slate-600">{routeProvider}</p>}
         </div>
 
         <div className="absolute bottom-4 left-4 z-10 flex flex-wrap items-center gap-2">
-          <div className="rounded-2xl bg-slate-950/88 px-4 py-2.5 text-white shadow-lg backdrop-blur-md">
-            <div className="flex items-center gap-2 text-xs font-bold">
-              <Route className="h-3.5 w-3.5 text-blue-300" />
-              {routeDistanceKm ? `${routeDistanceKm.toFixed(1)} km highlighted` : 'Pins ready'}
+          {routeDistanceKm && (
+            <div className="rounded-2xl bg-slate-950/88 px-4 py-2.5 text-white shadow-lg backdrop-blur-md">
+              <div className="flex items-center gap-2 text-xs font-bold">
+                <Route className="h-3.5 w-3.5 text-blue-300" />
+                {`${routeDistanceKm.toFixed(1)} km`}
+              </div>
             </div>
-          </div>
+          )}
           <div className="rounded-2xl border border-white/70 bg-white/92 px-4 py-2.5 text-slate-700 shadow-lg backdrop-blur-md">
             <div className="flex items-center gap-2 text-xs font-bold">
               <Navigation className="h-3.5 w-3.5 text-emerald-600" />
-              {stopCount > 0 ? `${stopCount} stop${stopCount > 1 ? 's' : ''}` : 'Direct ride'}
+              {stopCount > 0 ? `${stopCount} stop${stopCount > 1 ? 's' : ''}` : 'Direct route'}
             </div>
           </div>
         </div>
