@@ -116,30 +116,6 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
             mapClassName="h-[150px]"
             className="rounded-none border-0 shadow-none"
           />
-          <div className="space-y-3 p-5">
-            <div className="flex items-start gap-3">
-              <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-success" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Pickup</p>
-                <p className="break-words text-sm font-semibold">{previewPickup}</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-destructive" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">{data.tripType === 'city_tour' ? 'Stops' : 'Drop'}</p>
-                {data.tripType === 'city_tour' && data.stops.length > 0 ? (
-                  <ul className="space-y-1">
-                    {data.stops.map((stop, index) => (
-                      <li key={index} className="break-words text-sm font-semibold">{index + 1}. {stop}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="break-words text-sm font-semibold">{previewDrop || '-'}</p>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Fare */}
