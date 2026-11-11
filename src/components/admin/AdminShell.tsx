@@ -4,6 +4,7 @@ import { TopHeader } from './TopHeader';
 import { NewBookingSheet } from './NewBookingSheet';
 import { MobileNav } from './MobileNav';
 import { useDrivers } from '@/hooks/useSupabaseData';
+import { useAdminLiveUpdates } from '@/hooks/useAdminLiveUpdates';
 
 export type ActiveTab = 'dashboard' | 'bookings' | 'drivers' | 'collections' | 'settings';
 
@@ -17,6 +18,7 @@ export function AdminShell({ children, activeTab = 'dashboard', onOpenPricing }:
   const [showNewBooking, setShowNewBooking] = useState(false);
   const [currentTab, setCurrentTab] = useState<ActiveTab>(activeTab);
   const { data: drivers = [] } = useDrivers();
+  useAdminLiveUpdates();
 
   useEffect(() => {
     setCurrentTab(activeTab);

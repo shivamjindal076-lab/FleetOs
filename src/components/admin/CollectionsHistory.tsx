@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { collectionDay, istDateString } from '@/lib/istDay';
 import { useCollectionsByDate, useCollectionsByRange } from '@/hooks/useSupabaseData';
 
 type Mode = 'day' | 'week' | 'month';
@@ -22,8 +23,9 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
+// IST dates, so a late-night payment lands on the right day.
 function toDateStr(d: Date): string {
-  return d.toISOString().split('T')[0];
+  return istDateString(d);
 }
 
 function getRange(mode: Mode, offset: number): { start: string; end: string; label: string } {
@@ -48,14 +50,15 @@ function getRange(mode: Mode, offset: number): { start: string; end: string; lab
     };
   }
 
-  // month
-  const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-  const start = new Date(d.getFullYear(), d.getMonth(), 1);
-  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  // month, worked out on IST dates so the viewer's device clock doesn't shift the edges
+  const [y, m] = istDateString(now).split('-').map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + offset, 1));
+  const last = new Date(Date.UTC(y, m + offset, 0));
+  const iso = (d: Date) => d.toISOString().split('T')[0];
   return {
-    start: toDateStr(start),
-    end: toDateStr(end),
-    label: d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
+    start: iso(first),
+    end: iso(last),
+    label: first.toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
   };
 }
 
@@ -168,7 +171,7 @@ export function CollectionsHistory() {
         const d = addDays(new Date(start), i);
         const ds = toDateStr(d);
         const amount = bookings
-          .filter(b => b.scheduled_at?.startsWith(ds) && b.payment_confirmed_at)
+          .filter(b => collectionDay(b) === ds && b.payment_confirmed_at)
           .reduce((s: number, b: any) => s + (b.amount_collected ?? 0), 0);
         return { label: d.toLocaleDateString('en-IN', { weekday: 'short' }), amount };
       });
@@ -183,7 +186,7 @@ export function CollectionsHistory() {
         const wStart = toDateStr(cursor);
         const wEnd = toDateStr(addDays(cursor, 6));
         const amount = bookings
-          .filter(b => b.scheduled_at >= wStart + 'T00:00:00' && b.scheduled_at <= wEnd + 'T23:59:59' && b.payment_confirmed_at)
+          .filter(b => { const day = collectionDay(b); return !!day && day >= wStart && day <= wEnd && !!b.payment_confirmed_at; })
           .reduce((s: number, b: any) => s + (b.amount_collected ?? 0), 0);
         weeks.push({ label: `W${weekNum}`, amount });
         cursor = addDays(cursor, 7);

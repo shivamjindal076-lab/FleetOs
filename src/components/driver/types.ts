@@ -1,6 +1,6 @@
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
-export type DriverScreen = 'home' | 'active-trip' | 'earnings' | 'documents' | 'expenses';
+export type DriverScreen = 'home' | 'active-trip' | 'earnings' | 'completed' | 'documents' | 'expenses';
 export type TripPhase = 'navigating' | 'arrived' | 'started' | 'completed';
 
 export interface ScheduledTrip {

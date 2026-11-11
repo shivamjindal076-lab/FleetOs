@@ -7,6 +7,7 @@ import { TripPreviewMap } from '@/components/maps/TripPreviewMap';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useOrg } from '@/hooks/useOrg';
+import { fleetLoadState } from '@/lib/fleetLoad';
 import { vehicleClassLabel } from '@/lib/dispatch';
 import { saveTrackingToken } from '@/lib/trackingStorage';
 import { bookingRequest, tripEnds } from '@/lib/bookingRequest';
@@ -31,7 +32,8 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
   const [submitting, setSubmitting] = useState(false);
   // Private token from create_customer_booking; customers can't read the bookings table directly.
   const [trackingToken, setTrackingToken] = useState<string | null>(null);
-  const { org } = useOrg();
+  const { org, orgLoading, orgError } = useOrg();
+  const fleetState = fleetLoadState({ hasOrg: !!org?.id, loading: orgLoading, error: orgError });
   const { fare, isLoading: fareLoading, isError: fareError } = useFareQuote(data);
   const call = telHref(org?.support_phone);
   const whatsapp = whatsappHref(org?.whatsapp_phone);
@@ -55,7 +57,7 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
     setSubmitError(null);
     try {
       if (!org?.id) {
-        throw new Error('Fleet details are still loading. Try again in a moment.');
+        throw new Error(fleetState.status === 'error' ? fleetState.message : 'Fleet details are loading.');
       }
 
       const payload = { ...request, payment_method: payment };
@@ -244,6 +246,13 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
         </div>
       )}
 
+      {fleetState.status === 'error' && (
+        <div role="alert" className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+          <p className="text-muted-foreground">{fleetState.message}</p>
+        </div>
+      )}
+
       {/* Sticky bar */}
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border/60 bg-[hsl(var(--cu-page))] pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto flex max-w-md items-center gap-3 px-6 py-3">
@@ -259,12 +268,16 @@ export function BookingSummary({ data, onEdit, onDone }: BookingSummaryProps) {
           <Button
             type="button"
             onClick={handleConfirm}
-            disabled={submitting}
+            disabled={submitting || fleetState.status !== 'ready'}
             className="h-12 flex-1 rounded-full text-base font-semibold"
           >
             {submitting
               ? <><Loader2 className="h-4 w-4 animate-spin" /> Confirming</>
-              : submitError ? 'Try again' : confirmLabel(fare)}
+              : fleetState.status === 'loading'
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> {fleetState.buttonLabel}</>
+                : fleetState.status === 'error'
+                  ? 'Refresh the page to continue'
+                  : submitError ? 'Try again' : confirmLabel(fare)}
           </Button>
         </div>
       </div>

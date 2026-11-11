@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
+import { supabase } from '@/integrations/supabase/client';
 import { addressFromReverse } from '@/lib/customerTrip';
+import {
+  createCoordCache,
+  isValidLatLng,
+  parseProxyAddress,
+  parseProxyPlace,
+  parseProxyPlaces,
+  parseProxyRoute,
+} from '@/lib/mapsProxy';
 
 declare global {
   interface Window {
@@ -13,12 +22,12 @@ const LEAFLET_CSS_URL = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 // Integrity hashes of the official 1.9.4 files: the browser refuses a changed copy from the CDN.
 const LEAFLET_JS_SRI = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
 const LEAFLET_CSS_SRI = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-const OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-const OSM_ATTRIBUTION = '&copy; OpenStreetMap contributors';
+export const OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const OSM_ATTRIBUTION = '&copy; OpenStreetMap contributors';
 
 let leafletLoadPromise: Promise<void> | null = null;
 
-export type FleetMapProvider = 'ola' | 'mappls' | 'nominatim' | 'osrm' | 'leaflet';
+export type FleetMapProvider = 'proxy' | 'nominatim' | 'osrm' | 'leaflet';
 
 export class OlaMapsApiError extends Error {
   status: number;
@@ -54,6 +63,8 @@ export interface OlaPlaceDetails {
 export interface RouteResult {
   polyline: string;
   provider: Exclude<FleetMapProvider, 'leaflet'>;
+  distanceMeters?: number;
+  durationSeconds?: number;
 }
 
 export interface RouteDrawOptions {
@@ -77,7 +88,7 @@ function appendStylesheet(href: string, integrity?: string) {
   document.head.appendChild(link);
 }
 
-function loadLeaflet(): Promise<void> {
+export function loadLeaflet(): Promise<void> {
   if (leafletLoadPromise) return leafletLoadPromise;
 
   leafletLoadPromise = new Promise((resolve, reject) => {
@@ -113,14 +124,6 @@ function asNumber(...values: unknown[]): number | null {
   return null;
 }
 
-function normalizeAddress(...values: unknown[]): string {
-  return values
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .map(value => value.trim())
-    .filter((value, index, all) => all.indexOf(value) === index)
-    .join(', ');
-}
-
 function buildPrediction(
   provider: Exclude<FleetMapProvider, 'osrm' | 'leaflet'>,
   description: string,
@@ -143,26 +146,6 @@ function buildPrediction(
       secondary_text: options.secondaryText,
     },
   };
-}
-
-function normalizeDetails(
-  provider: Exclude<FleetMapProvider, 'osrm' | 'leaflet'>,
-  address: string,
-  lat: number | null,
-  lng: number | null
-): OlaPlaceDetails | null {
-  if (lat == null || lng == null) return null;
-
-  return {
-    address: address.trim() || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-    lat,
-    lng,
-    provider,
-  };
-}
-
-function encodeLatLng(lat: number, lng: number) {
-  return `${lat.toFixed(6)},${lng.toFixed(6)}`;
 }
 
 async function fetchJson<T>(
@@ -189,124 +172,58 @@ async function fetchJson<T>(
   }
 
   if (!response.ok) {
-    let message = `${provider} request failed (${response.status})`;
-
-    try {
-      const payload = await response.json();
-      message = payload?.error?.message ?? payload?.message ?? payload?.error ?? message;
-    } catch {
-      // Keep the fallback message when the provider does not return JSON.
-    }
-
-    throw new OlaMapsApiError(message, response.status, provider);
+    throw new OlaMapsApiError(`${provider} request failed (${response.status})`, response.status, provider);
   }
 
   return response.json() as Promise<T>;
 }
 
-export function getOlaMapsApiKey(): string {
-  return import.meta.env.VITE_OLA_MAPS_API_KEY?.trim() ?? '';
+interface NominatimHit {
+  place_id: number | string;
+  display_name: string;
+  name?: string;
+  lat?: string;
+  lon?: string;
 }
 
-export function getMapplsAccessToken(): string {
-  return import.meta.env.VITE_MAPPLS_ACCESS_TOKEN?.trim() ?? '';
-}
+// ---- Lookups through the maps-proxy function (keys stay on the server) ----
 
-export function isOlaMapsConfigured(): boolean {
-  return Boolean(getOlaMapsApiKey());
-}
+const PROXY_TIMEOUT_MS = 10000;
+const PROXY_RETRY_AFTER_MS = 60000;
+let proxyDownUntil = 0;
 
-export function isMapplsConfigured(): boolean {
-  return Boolean(getMapplsAccessToken());
-}
+// Addresses that came from a pin or a suggestion, so the route preview needs no second lookup.
+const knownPlaces = createCoordCache();
 
-export function hasLocationSearchProvider(): boolean {
-  return true;
-}
+/** Answer from the proxy, or null when it is missing, failing or slow. The caller then uses the open services. */
+async function callProxy(body: Record<string, unknown>): Promise<unknown | null> {
+  if (Date.now() < proxyDownUntil) return null;
 
-export function getMapStackLabel(): string {
-  if (isOlaMapsConfigured() && isMapplsConfigured()) return 'Ola primary, Mappls backup';
-  if (isOlaMapsConfigured()) return 'Ola primary';
-  if (isMapplsConfigured()) return 'Mappls primary';
-  return 'Open fallback';
-}
+  let timer: number | undefined;
+  try {
+    const result = await Promise.race([
+      supabase.functions.invoke('maps-proxy', { body }),
+      new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error('timeout')), PROXY_TIMEOUT_MS);
+      }),
+    ]);
 
-export function olaUrl(endpoint: string, params: Record<string, string> = {}): string {
-  const url = new URL(`https://api.olamaps.io${endpoint}`);
-  url.searchParams.set('api_key', getOlaMapsApiKey());
-  Object.entries(params).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
-  return url.toString();
-}
+    if (result.error) {
+      // Not deployed, not configured or rejected: stop asking for a minute. A bad query alone does not count.
+      const status = (result.error as { context?: { status?: number } }).context?.status;
+      if (status === undefined || [401, 403, 404, 503].includes(status)) {
+        proxyDownUntil = Date.now() + PROXY_RETRY_AFTER_MS;
+      }
+      return null;
+    }
 
-function mapplsUrl(host: 'search' | 'route', path: string, params: Record<string, string> = {}): string {
-  const base = host === 'route' ? 'https://route.mappls.com' : 'https://search.mappls.com';
-  const url = new URL(`${base}${path}`);
-  url.searchParams.set('access_token', getMapplsAccessToken());
-  Object.entries(params).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
-  return url.toString();
-}
-
-async function olaAutocompleteOnly(input: string): Promise<OlaPlacePrediction[]> {
-  const payload = await fetchJson<{ predictions?: OlaPlacePrediction[] }>(
-    olaUrl('/places/v1/autocomplete', { input }),
-    'ola'
-  );
-
-  return (payload.predictions ?? []).map(prediction => ({
-    ...prediction,
-    provider: 'ola',
-  }));
-}
-
-async function mapplsAutocompleteOnly(input: string): Promise<OlaPlacePrediction[]> {
-  const payload = await fetchJson<any>(
-    mapplsUrl('search', '/search/places/autosuggest/json', {
-      query: input,
-      region: 'IND',
-    }),
-    'mappls'
-  );
-
-  const suggestions = Array.isArray(payload?.suggestedLocations)
-    ? payload.suggestedLocations
-    : Array.isArray(payload?.results)
-      ? payload.results
-      : [];
-
-  return suggestions
-    .map((suggestion: any) => {
-      const description = normalizeAddress(
-        suggestion.placeName,
-        suggestion.placeAddress,
-        suggestion.address,
-        suggestion.formattedAddress
-      );
-      const mainText = suggestion.placeName ?? suggestion.keyword ?? description;
-      const secondaryText = suggestion.placeAddress ?? suggestion.address ?? '';
-      const placeId = suggestion.eLoc ?? suggestion.eloc ?? suggestion.placeId ?? description;
-
-      return buildPrediction('mappls', description || mainText || input, `mappls:${placeId}`, {
-        lat: asNumber(
-          suggestion.latitude,
-          suggestion.lat,
-          suggestion.entryLatitude,
-          suggestion.entry_lat
-        ),
-        lng: asNumber(
-          suggestion.longitude,
-          suggestion.lng,
-          suggestion.entryLongitude,
-          suggestion.entry_lon
-        ),
-        mainText,
-        secondaryText,
-      });
-    })
-    .filter((prediction: OlaPlacePrediction) => Boolean(prediction.description));
+    return result.data ?? null;
+  } catch {
+    proxyDownUntil = Date.now() + PROXY_RETRY_AFTER_MS;
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 async function nominatimAutocomplete(input: string): Promise<OlaPlacePrediction[]> {
@@ -316,7 +233,7 @@ async function nominatimAutocomplete(input: string): Promise<OlaPlacePrediction[
   url.searchParams.set('limit', '5');
   url.searchParams.set('q', input);
 
-  const payload = await fetchJson<any[]>(url.toString(), 'nominatim');
+  const payload = await fetchJson<NominatimHit[]>(url.toString(), 'nominatim');
 
   return payload.map(result =>
     buildPrediction('nominatim', result.display_name, `nominatim:${result.place_id}`, {
@@ -325,71 +242,6 @@ async function nominatimAutocomplete(input: string): Promise<OlaPlacePrediction[
       mainText: result.name ?? result.display_name?.split(',')[0],
       secondaryText: result.display_name,
     })
-  );
-}
-
-async function olaPlaceDetailsOnly(placeId: string): Promise<OlaPlaceDetails | null> {
-  const payload = await fetchJson<any>(
-    olaUrl('/places/v1/details', { place_id: placeId }),
-    'ola'
-  );
-
-  return normalizeDetails(
-    'ola',
-    normalizeAddress(payload?.result?.formatted_address),
-    asNumber(payload?.result?.geometry?.location?.lat),
-    asNumber(payload?.result?.geometry?.location?.lng)
-  );
-}
-
-async function olaGeocodeOnly(address: string): Promise<OlaPlaceDetails | null> {
-  const payload = await fetchJson<any>(
-    olaUrl('/places/v1/geocode', { address }),
-    'ola'
-  );
-  const firstResult = payload?.geocodingResults?.[0];
-
-  return normalizeDetails(
-    'ola',
-    normalizeAddress(firstResult?.formatted_address, address),
-    asNumber(firstResult?.geometry?.location?.lat),
-    asNumber(firstResult?.geometry?.location?.lng)
-  );
-}
-
-async function mapplsGeocodeOnly(address: string): Promise<OlaPlaceDetails | null> {
-  const payload = await fetchJson<any>(
-    mapplsUrl('search', '/search/address/geocode', { address }),
-    'mappls'
-  );
-  const firstResult = Array.isArray(payload?.copResults)
-    ? payload.copResults[0]
-    : Array.isArray(payload?.results)
-      ? payload.results[0]
-      : Array.isArray(payload)
-        ? payload[0]
-        : payload;
-
-  return normalizeDetails(
-    'mappls',
-    normalizeAddress(
-      firstResult?.formatted_address,
-      firstResult?.placeName,
-      firstResult?.placeAddress,
-      address
-    ),
-    asNumber(
-      firstResult?.latitude,
-      firstResult?.lat,
-      firstResult?.entryLatitude,
-      firstResult?.entry_lat
-    ),
-    asNumber(
-      firstResult?.longitude,
-      firstResult?.lng,
-      firstResult?.entryLongitude,
-      firstResult?.entry_lon
-    )
   );
 }
 
@@ -406,41 +258,6 @@ async function nominatimGeocodeOnly(address: string): Promise<OlaPlaceDetails | 
   };
 }
 
-async function olaDirectionsOnly(
-  origin: { lat: number; lng: number },
-  destination: { lat: number; lng: number }
-): Promise<RouteResult | null> {
-  const payload = await fetchJson<any>(
-    olaUrl('/routing/v1/directions', {
-      origin: `${origin.lat},${origin.lng}`,
-      destination: `${destination.lat},${destination.lng}`,
-    }),
-    'ola'
-  );
-
-  const polyline = payload?.routes?.[0]?.overview_polyline?.points;
-  return polyline ? { polyline, provider: 'ola' } : null;
-}
-
-async function mapplsDirectionsOnly(
-  origin: { lat: number; lng: number },
-  destination: { lat: number; lng: number }
-): Promise<RouteResult | null> {
-  const path = `/route/direction/route_adv/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
-  const payload = await fetchJson<any>(
-    mapplsUrl('route', path, { geometries: 'polyline' }),
-    'mappls'
-  );
-
-  const firstRoute = payload?.routes?.[0];
-  const polyline =
-    firstRoute?.geometry ??
-    firstRoute?.overview_polyline?.points ??
-    firstRoute?.overview_polyline;
-
-  return polyline ? { polyline, provider: 'mappls' } : null;
-}
-
 async function osrmDirections(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number }
@@ -451,78 +268,45 @@ async function osrmDirections(
   url.searchParams.set('overview', 'full');
   url.searchParams.set('geometries', 'polyline');
 
-  const payload = await fetchJson<any>(url.toString(), 'osrm');
-  const polyline = payload?.routes?.[0]?.geometry;
+  const payload = await fetchJson<{ routes?: Array<{ geometry?: string; distance?: number; duration?: number }> }>(url.toString(), 'osrm');
+  const route = payload?.routes?.[0];
+  const polyline = route?.geometry;
 
-  return polyline ? { polyline, provider: 'osrm' } : null;
+  return polyline
+    ? {
+        polyline,
+        provider: 'osrm',
+        distanceMeters: asNumber(route?.distance) ?? undefined,
+        durationSeconds: asNumber(route?.duration) ?? undefined,
+      }
+    : null;
 }
 
 export async function olaAutocomplete(input: string): Promise<OlaPlacePrediction[]> {
   const query = input.trim();
   if (!query) return [];
 
-  const errors: OlaMapsApiError[] = [];
-
-  if (isOlaMapsConfigured()) {
-    try {
-      const results = await olaAutocompleteOnly(query);
-      if (results.length > 0) return results;
-    } catch (error) {
-      errors.push(
-        error instanceof OlaMapsApiError
-          ? error
-          : new OlaMapsApiError('Ola suggestions failed.', 0, 'ola')
-      );
-    }
+  const proxied = parseProxyPlaces(await callProxy({ op: 'autocomplete', input: query }));
+  if (proxied.length > 0) {
+    return proxied.map(place => {
+      if (place.lat !== null && place.lng !== null) knownPlaces.remember(place.label, place.lat, place.lng);
+      return buildPrediction('proxy', place.label, place.id, {
+        lat: place.lat,
+        lng: place.lng,
+        mainText: place.main,
+        secondaryText: place.secondary,
+      });
+    });
   }
 
-  if (isMapplsConfigured()) {
-    try {
-      const results = await mapplsAutocompleteOnly(query);
-      if (results.length > 0) return results;
-    } catch (error) {
-      errors.push(
-        error instanceof OlaMapsApiError
-          ? error
-          : new OlaMapsApiError('Mappls suggestions failed.', 0, 'mappls')
-      );
-    }
-  }
-
-  try {
-    return await nominatimAutocomplete(query);
-  } catch (error) {
-    if (error instanceof OlaMapsApiError) errors.push(error);
-  }
-
-  if (errors.length > 0) throw errors[0];
-  return [];
+  return nominatimAutocomplete(query);
 }
 
 export async function olaPlaceDetails(
   placeId: string,
   fallbackDescription = ''
 ): Promise<OlaPlaceDetails | null> {
-  const normalizedPlaceId = placeId.trim();
-  if (!normalizedPlaceId) return null;
-
-  if (normalizedPlaceId.startsWith('mappls:')) {
-    return fallbackDescription ? olaGeocode(fallbackDescription) : null;
-  }
-
-  if (normalizedPlaceId.startsWith('nominatim:')) {
-    return fallbackDescription ? olaGeocode(fallbackDescription) : null;
-  }
-
-  if (isOlaMapsConfigured()) {
-    try {
-      const details = await olaPlaceDetailsOnly(normalizedPlaceId);
-      if (details) return details;
-    } catch {
-      // Fall through to the broader geocoder chain.
-    }
-  }
-
+  if (!placeId.trim()) return null;
   return fallbackDescription ? olaGeocode(fallbackDescription) : null;
 }
 
@@ -530,22 +314,12 @@ export async function olaGeocode(address: string): Promise<OlaPlaceDetails | nul
   const query = address.trim();
   if (!query) return null;
 
-  if (isOlaMapsConfigured()) {
-    try {
-      const details = await olaGeocodeOnly(query);
-      if (details) return details;
-    } catch {
-      // Fall through to the next provider.
-    }
-  }
+  const known = knownPlaces.get(query);
+  if (known) return { address: query, lat: known.lat, lng: known.lng, provider: 'proxy' };
 
-  if (isMapplsConfigured()) {
-    try {
-      const details = await mapplsGeocodeOnly(query);
-      if (details) return details;
-    } catch {
-      // Fall through to the open fallback.
-    }
+  const place = parseProxyPlace(await callProxy({ op: 'geocode', address: query }));
+  if (place && place.lat !== null && place.lng !== null) {
+    return { address: place.label, lat: place.lat, lng: place.lng, provider: 'proxy' };
   }
 
   try {
@@ -555,52 +329,45 @@ export async function olaGeocode(address: string): Promise<OlaPlaceDetails | nul
   }
 }
 
-/** Street address for a coordinate, or null. Ola Maps first when configured, then the open Nominatim service. */
+/** Street address for a coordinate, or null. Remembers the coordinate so the address needs no second lookup. */
 export async function olaReverseGeocode(lat: number, lng: number): Promise<string | null> {
-  if (isOlaMapsConfigured()) {
+  if (!isValidLatLng(lat, lng)) return null;
+
+  let address = parseProxyAddress(await callProxy({ op: 'reverse', lat, lng }));
+
+  if (!address) {
     try {
-      const payload = await fetchJson<unknown>(
-        olaUrl('/places/v1/reverse-geocode', { latlng: encodeLatLng(lat, lng) }),
-        'ola'
-      );
-      const address = addressFromReverse(payload);
-      if (address) return address;
+      const url = new URL('https://nominatim.openstreetmap.org/reverse');
+      url.searchParams.set('format', 'jsonv2');
+      url.searchParams.set('lat', String(lat));
+      url.searchParams.set('lon', String(lng));
+      address = addressFromReverse(await fetchJson<unknown>(url.toString(), 'nominatim'));
     } catch {
-      // Fall through to the open fallback.
+      address = null;
     }
   }
 
-  try {
-    const url = new URL('https://nominatim.openstreetmap.org/reverse');
-    url.searchParams.set('format', 'jsonv2');
-    url.searchParams.set('lat', String(lat));
-    url.searchParams.set('lon', String(lng));
-    return addressFromReverse(await fetchJson<unknown>(url.toString(), 'nominatim'));
-  } catch {
-    return null;
-  }
+  if (address) knownPlaces.remember(address, lat, lng);
+  return address;
+}
+
+/** Lets a chosen pin keep its exact coordinates even when its text is typed or edited later. */
+export function rememberPlaceCoords(address: string, lat: number, lng: number): void {
+  knownPlaces.remember(address, lat, lng);
 }
 
 export async function olaDirections(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number }
 ): Promise<RouteResult | null> {
-  if (isOlaMapsConfigured()) {
-    try {
-      const route = await olaDirectionsOnly(origin, destination);
-      if (route) return route;
-    } catch {
-      // Fall through to the next provider.
-    }
-  }
-
-  if (isMapplsConfigured()) {
-    try {
-      const route = await mapplsDirectionsOnly(origin, destination);
-      if (route) return route;
-    } catch {
-      // Fall through to the open fallback.
-    }
+  const route = parseProxyRoute(await callProxy({ op: 'directions', from: origin, to: destination }));
+  if (route) {
+    return {
+      polyline: route.polyline,
+      provider: 'proxy',
+      distanceMeters: route.distanceMeters ?? undefined,
+      durationSeconds: route.durationSeconds ?? undefined,
+    };
   }
 
   try {
@@ -608,6 +375,15 @@ export async function olaDirections(
   } catch {
     return null;
   }
+}
+
+export function hasLocationSearchProvider(): boolean {
+  return true;
+}
+
+/** Short status for admin screens. Keys live on the server, so the browser cannot tell which provider answered. */
+export function getMapStackLabel(): string {
+  return 'Server search with open fallback';
 }
 
 export interface OlaMarkerOptions {

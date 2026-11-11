@@ -3,6 +3,7 @@ import { Plus, Minus, X, GripVertical, PlaneLanding, PlaneTakeoff, ChevronRight,
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LocationInput } from './LocationInput';
+import { ChooseOnMapButton } from '@/components/maps/ChooseOnMapButton';
 import { TripType } from './TripTypeSelector';
 import { TripPreviewMap } from '@/components/maps/TripPreviewMap';
 import { cn } from '@/lib/utils';
@@ -210,15 +211,22 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
             placeholder={data.tripType === 'airport' ? 'Your address' : 'Pickup location'}
             icon="pickup"
           />
-          <button
-            type="button"
-            onClick={fillFromLocation}
-            disabled={locating}
-            className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-full px-3 text-sm font-semibold text-primary disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {locating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <LocateFixed className="h-4 w-4" aria-hidden />}
-            {locating ? 'Finding you' : 'Use my location'}
-          </button>
+          <div className="mt-1 flex flex-wrap items-center">
+            <button
+              type="button"
+              onClick={fillFromLocation}
+              disabled={locating}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-3 text-sm font-semibold text-primary disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {locating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <LocateFixed className="h-4 w-4" aria-hidden />}
+              {locating ? 'Finding you' : 'Use my location'}
+            </button>
+            <ChooseOnMapButton
+              value={data.pickup}
+              title="Choose pickup on map"
+              onPick={(address) => onChange({ ...dataRef.current, pickup: address })}
+            />
+          </div>
           {geoMessage && (
             <p role="status" className="flex items-start gap-1 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -263,6 +271,12 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
               placeholder={data.tripType === 'local' ? 'Drop location' : 'Destination city'}
               icon="drop"
             />
+            <ChooseOnMapButton
+              value={data.drop}
+              title={data.tripType === 'local' ? 'Choose drop on map' : 'Choose destination on map'}
+              className="mt-1"
+              onPick={(address) => onChange({ ...dataRef.current, drop: address })}
+            />
             <FieldError id="err-drop" message={errors.drop} />
           </div>
         )}
@@ -280,6 +294,16 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
                   value={stop}
                   onChange={(e) => updateStop(i, e.target.value)}
                   className={cn(inputClass, 'text-sm')}
+                />
+                <ChooseOnMapButton
+                  iconOnly
+                  value={stop}
+                  title={`Choose stop ${i + 1} on map`}
+                  onPick={(address) => {
+                    const next = [...dataRef.current.stops];
+                    next[i] = address;
+                    onChange({ ...dataRef.current, stops: next });
+                  }}
                 />
                 <button type="button" onClick={() => removeStop(i)} aria-label={`Remove stop ${i + 1}`} className="flex h-11 w-11 shrink-0 items-center justify-center">
                   <X className="h-4 w-4 text-muted-foreground" />

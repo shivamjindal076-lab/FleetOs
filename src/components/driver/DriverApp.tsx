@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Car, Navigation, Phone, Clock, Camera, FileText, CheckCircle, X, Power, AlertTriangle, Wallet, Fuel, WifiOff, PhoneCall, Calendar, AlarmClock, Shield, Banknote, Smartphone } from 'lucide-react';
+import { Car, Navigation, Phone, Clock, Camera, FileText, CheckCircle, X, Power, AlertTriangle, Wallet, Fuel, WifiOff, PhoneCall, Calendar, AlarmClock, Shield, Banknote, Smartphone, History } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
-import { useMyDriverProfile, useTodayHandover, SupabaseBooking, SupabaseDriver } from '@/hooks/useSupabaseData';
+import { useMyDriverProfile, useDriverCompletedRides, SupabaseBooking, SupabaseDriver } from '@/hooks/useSupabaseData';
+import { CompletedRidesList } from '@/components/CompletedRidesList';
+import { collectedTotals, countCompleted } from '@/lib/rideHistory';
 import { useOrg } from '@/hooks/useOrg';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -48,12 +50,13 @@ export function DriverApp({ driver }: DriverAppProps) {
 
   const { data: fetchedProfile } = useMyDriverProfile();
   const myProfile = driver ?? fetchedProfile;
-  const { data: todayHandover, refetch: refetchTodayHandover } = useTodayHandover(myProfile?.id);
   const queryClient = useQueryClient();
   const { org } = useOrg();
   const { data: driverInfo } = useOrgDriverInfo();
-  const { expenses, collections, addExpense, addCollection, deleteExpense, handleHandOver, handoverLoading, pendingSyncCount } =
-    useDriverCash(myProfile?.id, org?.id, refetchTodayHandover);
+  const { expenses, collections, handovers, refreshCash, addExpense, addCollection, deleteExpense, handleHandOver, handoverLoading, pendingSyncCount } =
+    useDriverCash(myProfile?.id, org?.id);
+  // The trips query above only holds open trips, so finished ones come from their own query.
+  const { data: completedRides = [], isLoading: completedLoading, isError: completedError } = useDriverCompletedRides(myProfile?.id);
 
   const { data: realTrips = [] } = useQuery({
     queryKey: ['driver-trips', myProfile?.id, org?.id],
@@ -89,24 +92,14 @@ export function DriverApp({ driver }: DriverAppProps) {
   const readyBooking = realTrips.find(
     trip => trip.status === 'confirmed' && Boolean(trip.driver_confirmed_at)
   ) ?? null;
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const weekStart = new Date();
-  weekStart.setDate(weekStart.getDate() - 6);
-  weekStart.setHours(0, 0, 0, 0);
-  const weekStartIso = weekStart.toISOString();
-  const monthKey = todayKey.slice(0, 7);
-  const todayRevenue = realTrips
-    .filter(trip => trip.payment_confirmed_at?.startsWith(todayKey))
-    .reduce((sum, trip) => sum + (trip.amount_collected ?? trip.fare ?? 0), 0);
-  const weekRevenue = realTrips
-    .filter(trip => trip.payment_confirmed_at && trip.payment_confirmed_at >= weekStartIso)
-    .reduce((sum, trip) => sum + (trip.amount_collected ?? trip.fare ?? 0), 0);
-  const monthRevenue = realTrips
-    .filter(trip => trip.payment_confirmed_at?.startsWith(monthKey))
-    .reduce((sum, trip) => sum + (trip.amount_collected ?? trip.fare ?? 0), 0);
-  const completedTodayCount = realTrips.filter(trip => trip.trip_completed_at?.startsWith(todayKey)).length;
-  const completedWeekCount = realTrips.filter(trip => trip.trip_completed_at && trip.trip_completed_at >= weekStartIso).length;
-  const completedMonthCount = realTrips.filter(trip => trip.trip_completed_at?.startsWith(monthKey)).length;
+  const completedCounts = countCompleted(completedRides);
+  const collectedByPeriod = collectedTotals(completedRides);
+  const todayRevenue = collectedByPeriod.today;
+  const weekRevenue = collectedByPeriod.week;
+  const monthRevenue = collectedByPeriod.month;
+  const completedTodayCount = completedCounts.today;
+  const completedWeekCount = completedCounts.week;
+  const completedMonthCount = completedCounts.month;
   const acceptanceRate = realTrips.length > 0
     ? Math.round((realTrips.filter(trip => Boolean(trip.driver_confirmed_at)).length / realTrips.length) * 100)
     : 100;
@@ -173,6 +166,7 @@ export function DriverApp({ driver }: DriverAppProps) {
           if (!shouldTrackBooking) {
             setScheduledTrips(prev => prev.filter(trip => trip.id !== `BK-${booking.id}`));
             queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile.id, org.id] });
+            queryClient.invalidateQueries({ queryKey: ['driver-completed', myProfile.id] });
             return;
           }
 
@@ -327,12 +321,13 @@ export function DriverApp({ driver }: DriverAppProps) {
     setBannerTrips(trips => trips.filter(tripId => tripId !== `BK-${bookingId}`));
     setAlarmTrips(trips => trips.filter(tripId => tripId !== `BK-${bookingId}`));
     const db = supabase;
+    const completedTrip = realTrips.find(t => t.id === bookingId);
     await db.from('bookings').update({ status: 'completed', trip_completed_at: new Date().toISOString() }).eq('id', bookingId);
     await db.from('drivers').update({ status: 'free' }).eq('id', myProfile.id);
     queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile.id, org?.id] });
+    queryClient.invalidateQueries({ queryKey: ['driver-completed', myProfile.id] });
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
     queryClient.invalidateQueries({ queryKey: ['drivers'] });
-    const completedTrip = realTrips.find(t => t.id === bookingId);
     if (completedTrip) {
       await queueFeedbackMessage(completedTrip, org);
     }
@@ -344,15 +339,17 @@ export function DriverApp({ driver }: DriverAppProps) {
   const handleLogPayment = async () => {
     if (!collectBookingId) return;
     setCollectLoading(true);
-    const paidAmount = Number(collectAmount);
+    const paidAmount = Math.round(Number(collectAmount) * 100) / 100;
+    // Looked up before saving: once paid and completed, the trip leaves the open-trips list.
+    const paidTrip = realTrips.find(t => t.id === collectBookingId);
     await supabase.from('bookings').update({
       amount_collected: paidAmount,
       payment_method: collectMethod,
       payment_confirmed_at: new Date().toISOString(),
     }).eq('id', collectBookingId);
     queryClient.invalidateQueries({ queryKey: ['driver-trips', myProfile?.id, org?.id] });
+    queryClient.invalidateQueries({ queryKey: ['driver-completed', myProfile?.id] });
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
-    const paidTrip = realTrips.find(t => t.id === collectBookingId);
     if (paidTrip) {
       await queueInvoiceMessage(paidTrip, paidAmount, collectMethod, org);
     }
@@ -404,7 +401,7 @@ export function DriverApp({ driver }: DriverAppProps) {
         if (!trip) return null;
         return (
           <div key={tripId} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div className="bg-card rounded-xl p-6 mx-4 max-w-sm w-full text-center">
+            <div className="bg-card text-card-foreground rounded-xl p-6 mx-4 max-w-sm w-full text-center">
               <AlarmClock className="h-16 w-16 text-destructive mx-auto mb-4 animate-bounce" />
               <h2 className="text-xl font-semibold text-destructive mb-1">Trip in 1 hour</h2>
               <p className="font-semibold mb-1">{trip.customerName}</p>
@@ -421,10 +418,10 @@ export function DriverApp({ driver }: DriverAppProps) {
       {/* Cash collection modal */}
       {collectBookingId !== null && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="bg-card rounded-xl p-6 mx-4 max-w-sm w-full">
+          <div className="bg-card text-card-foreground rounded-xl p-6 mx-4 max-w-sm w-full">
             <h2 className="text-lg font-semibold mb-1">Log payment collected</h2>
             <p className="text-sm text-muted-foreground mb-4">Fare was ₹{realTrips.find(t => t.id === collectBookingId)?.fare?.toLocaleString('en-IN') ?? collectAmount}</p>
-            <input type="number" aria-label="Amount collected in rupees" className="w-full h-12 border border-border rounded-xl px-4 text-base mb-4 bg-background focus:outline-none focus:ring-2 focus:ring-ring" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} placeholder="Amount collected" />
+            <input type="number" inputMode="decimal" min="0" step="0.01" aria-label="Amount collected in rupees" className="w-full h-12 border border-border rounded-xl px-4 text-base mb-4 bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} placeholder="Amount collected" />
             {acceptedMethods.length > 1 ? (
               <div className="flex gap-2 mb-5">
                 {acceptedMethods.map(m => (
@@ -456,7 +453,7 @@ export function DriverApp({ driver }: DriverAppProps) {
                 )}
               </div>
             )}
-            <Button className="w-full h-12 rounded-xl" disabled={collectLoading || !collectAmount} onClick={handleLogPayment}>
+            <Button className="w-full h-12 rounded-xl" disabled={collectLoading || !(Number(collectAmount) > 0)} onClick={handleLogPayment}>
               {collectLoading ? 'Saving' : 'Log payment'}
             </Button>
           </div>
@@ -465,7 +462,7 @@ export function DriverApp({ driver }: DriverAppProps) {
 
       {showUpiDetails && collectMethod === 'upi' && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 55, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="bg-card rounded-xl p-6 mx-4 max-w-sm w-full">
+          <div className="bg-card text-card-foreground rounded-xl p-6 mx-4 max-w-sm w-full">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">{brandName ? `${brandName} UPI` : 'UPI'}</h2>
               <button onClick={() => setShowUpiDetails(false)} aria-label="Close" className="-mr-2 h-11 w-11 flex items-center justify-center text-muted-foreground hover:text-foreground">
@@ -679,10 +676,11 @@ export function DriverApp({ driver }: DriverAppProps) {
             { id: 'home' as DriverScreen, label: 'Home', icon: Car, badge: unconfirmedTrips },
             { id: 'active-trip' as DriverScreen, label: 'Active trip', icon: Navigation, badge: 0 },
             { id: 'expenses' as DriverScreen, label: 'Expenses', icon: Fuel, badge: pendingSyncCount },
+            { id: 'completed' as DriverScreen, label: 'Completed', icon: History, badge: 0 },
             { id: 'earnings' as DriverScreen, label: 'Earnings', icon: Wallet, badge: 0 },
             { id: 'documents' as DriverScreen, label: 'Docs', icon: FileText, badge: 0 },
           ]).map(t => (
-            <button key={t.id} onClick={() => setScreen(t.id)} className={`relative flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0 ${screen === t.id ? 'bg-white text-gray-900 shadow-lg' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}>
+            <button key={t.id} onClick={() => { setScreen(t.id); if (t.id === 'expenses') void refreshCash(); }} className={`relative flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0 ${screen === t.id ? 'bg-white text-gray-900 shadow-lg' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}>
               <t.icon className="h-3.5 w-3.5" />
               {t.label}
               {t.badge > 0 && <span className="absolute -top-1 -right-1 h-4 w-4 bg-orange-500 text-white rounded-full text-[9px] font-black flex items-center justify-center">{t.badge}</span>}
@@ -861,7 +859,16 @@ export function DriverApp({ driver }: DriverAppProps) {
         )}
 
         {screen === 'expenses' && (
-          <ExpenseTracker isOffline={!isOnline} expenses={expenses} collections={collections} onAddExpense={addExpense} onAddCollection={addCollection} onDeleteExpense={deleteExpense} todayHandover={todayHandover ?? null} onHandOver={handleHandOver} handoverLoading={handoverLoading} />
+          <ExpenseTracker isOffline={!isOnline} expenses={expenses} collections={collections} onAddExpense={addExpense} onAddCollection={addCollection} onDeleteExpense={deleteExpense} handovers={handovers} onHandOver={handleHandOver} handoverLoading={handoverLoading} />
+        )}
+
+        {screen === 'completed' && (
+          <div className="pb-24">
+            <Card className="p-5 bg-gray-900 border-gray-800">
+              <h3 className="text-sm font-bold mb-4 flex items-center gap-2 text-white"><History className="h-4 w-4 text-blue-400" aria-hidden /> Completed rides</h3>
+              <CompletedRidesList variant="dark" rides={completedRides} loading={completedLoading} error={completedError} />
+            </Card>
+          </div>
         )}
 
         {screen === 'earnings' && (

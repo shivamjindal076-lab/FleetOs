@@ -1,6 +1,6 @@
 import { summarizeCash, formatSignedRupees } from '@/lib/cash';
 import { useState } from 'react';
-import { Banknote, CheckCircle, Fuel, IndianRupee, Smartphone, WifiOff, Wifi, Plus, Trash2 } from 'lucide-react';
+import { Banknote, CheckCircle, Clock, Fuel, IndianRupee, Smartphone, WifiOff, Wifi, Plus, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import type { ExpenseEntry, CashCollection } from './types';
 import { EXPENSE_ICONS, EXPENSE_LABELS } from './helpers';
@@ -16,7 +16,7 @@ function MethodIcon({ id }: { id: PaymentMethodId }) {
 export function ExpenseTracker({
   isOffline, expenses, collections,
   onAddExpense, onAddCollection, onDeleteExpense,
-  todayHandover, onHandOver, handoverLoading,
+  handovers, onHandOver, handoverLoading,
 }: {
   isOffline: boolean;
   expenses: ExpenseEntry[];
@@ -24,7 +24,7 @@ export function ExpenseTracker({
   onAddExpense: (e: Omit<ExpenseEntry, 'id' | 'timestamp' | 'isOffline'>) => void;
   onAddCollection: (c: Omit<CashCollection, 'id' | 'timestamp' | 'isOffline'>) => void;
   onDeleteExpense: (id: string) => void;
-  todayHandover: { amount: number; handed_over_at: string } | null;
+  handovers: { id: number; amount: number; handed_over_at: string; admin_approved: boolean }[];
   onHandOver: (amount: number) => Promise<void>;
   handoverLoading: boolean;
 }) {
@@ -45,14 +45,14 @@ export function ExpenseTracker({
   const pendingSync = [...expenses, ...collections].filter(e => e.isOffline).length;
 
   const submitExpense = () => {
-    if (!expAmount) return;
-    onAddExpense({ type: expType, amount: +expAmount, note: expNote });
+    if (!(+expAmount > 0)) return;
+    onAddExpense({ type: expType, amount: Math.round(+expAmount * 100) / 100, note: expNote });
     setExpAmount(''); setExpNote(''); setAddingExpense(false);
   };
 
   const submitCollection = () => {
-    if (!colAmount) return;
-    onAddCollection({ tripId: 'manual', customerName: '', amount: +colAmount, method: colMethod, note: colNote });
+    if (!(+colAmount > 0)) return;
+    onAddCollection({ tripId: 'manual', customerName: '', amount: Math.round(+colAmount * 100) / 100, method: colMethod, note: colNote });
     setColAmount(''); setColNote(''); setAddingCollection(false);
   };
 
@@ -79,14 +79,14 @@ export function ExpenseTracker({
         </div>
       )}
       <Card className="p-4 rounded-xl bg-gray-900 border-gray-800">
-        <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Today's summary</div>
+        <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Since your last handover</div>
         <div className="grid grid-cols-3 gap-3">
           <div className="text-center p-3 rounded-xl bg-green-500/10 border border-green-500/20">
-            <div className="text-lg font-bold text-green-400">₹{totalCollected.toLocaleString()}</div>
+            <div className="text-lg font-bold text-green-400">₹{totalCollected.toLocaleString('en-IN')}</div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">Collected</div>
           </div>
           <div className="text-center p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-            <div className="text-lg font-bold text-red-400">₹{totalExpenses.toLocaleString()}</div>
+            <div className="text-lg font-bold text-red-400">₹{totalExpenses.toLocaleString('en-IN')}</div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">Spent</div>
           </div>
           <div className={`text-center p-3 rounded-xl border ${netEarnings >= 0 ? 'bg-blue-500/10 border-blue-500/20' : 'bg-orange-500/10 border-orange-500/20'}`}>
@@ -104,7 +104,7 @@ export function ExpenseTracker({
         </div>
         {addingCollection && (
           <div className="mb-3 p-3 rounded-xl bg-gray-800 border border-gray-700 space-y-2.5">
-            <input aria-label="Amount (₹)" type="number" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Amount (₹)" value={colAmount} onChange={e => setColAmount(e.target.value)} />
+            <input aria-label="Amount (₹)" type="number" inputMode="decimal" min="0" step="0.01" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Amount (₹)" value={colAmount} onChange={e => setColAmount(e.target.value)} />
             <input aria-label="Note (optional)" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Note (optional)" value={colNote} onChange={e => setColNote(e.target.value)} />
             {accepted.length > 1 ? (
               <div className="flex gap-2">
@@ -121,7 +121,7 @@ export function ExpenseTracker({
           </div>
         )}
         <div className="space-y-2">
-          {collections.length === 0 && <p className="text-xs text-gray-500 text-center py-3">No collections yet today</p>}
+          {collections.length === 0 && <p className="text-xs text-gray-500 text-center py-3">No collections since your last handover</p>}
           {collections.map(c => (
             <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
               <div>
@@ -130,7 +130,7 @@ export function ExpenseTracker({
               </div>
               <div className="flex items-center gap-2">
                 {c.isOffline && <WifiOff className="h-3 w-3 text-orange-400" />}
-                <span className="text-sm font-bold text-green-400">+₹{c.amount}</span>
+                <span className="text-sm font-bold text-green-400">+₹{c.amount.toLocaleString('en-IN')}</span>
               </div>
             </div>
           ))}
@@ -153,13 +153,13 @@ export function ExpenseTracker({
                 </button>
               ))}
             </div>
-            <input aria-label="Amount (₹)" type="number" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Amount (₹)" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+            <input aria-label="Amount (₹)" type="number" inputMode="decimal" min="0" step="0.01" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Amount (₹)" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
             <input aria-label="Note (optional)" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Note (optional)" value={expNote} onChange={e => setExpNote(e.target.value)} />
             <button onClick={submitExpense} className="w-full min-h-[44px] rounded-lg bg-orange-500 text-gray-950 text-sm font-semibold active:scale-95 transition-all">Save expense</button>
           </div>
         )}
         <div className="space-y-2">
-          {expenses.length === 0 && <p className="text-xs text-gray-500 text-center py-3">No expenses logged today</p>}
+          {expenses.length === 0 && <p className="text-xs text-gray-500 text-center py-3">No expenses since your last handover</p>}
           {expenses.map(e => (
             <div key={e.id} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
               <div>
@@ -168,7 +168,7 @@ export function ExpenseTracker({
               </div>
               <div className="flex items-center gap-2">
                 {e.isOffline && <WifiOff className="h-3 w-3 text-orange-400" />}
-                <span className="text-sm font-bold text-red-400">-₹{e.amount}</span>
+                <span className="text-sm font-bold text-red-400">-₹{e.amount.toLocaleString('en-IN')}</span>
                 <button onClick={() => onDeleteExpense(e.id)} aria-label="Delete expense" className="h-11 w-11 -mr-2 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors">
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -180,16 +180,26 @@ export function ExpenseTracker({
       <Card className="p-4 rounded-xl bg-gray-900 border-gray-800">
         <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Cash handover</div>
         <p className="text-2xl font-bold text-white mb-1">₹{Math.max(0, cashToHandOver).toLocaleString('en-IN')}</p>
-        <p className="text-xs text-gray-500 mb-3">to hand over to the office today</p>
-        {cashToHandOver > 0 && !todayHandover && (
+        <p className="text-xs text-gray-400 mb-3">cash collected minus spending since your last handover</p>
+        {cashToHandOver > 0 && (
           <button onClick={() => onHandOver(cashToHandOver)} disabled={handoverLoading} className="w-full min-h-[48px] rounded-xl bg-green-500 hover:bg-green-400 active:scale-95 transition-all text-gray-950 font-semibold text-sm disabled:opacity-50">
-            {handoverLoading ? 'Recording' : 'Mark as handed over'}
+            {handoverLoading ? 'Recording' : `Hand over ₹${cashToHandOver.toLocaleString('en-IN')}`}
           </button>
         )}
-        {todayHandover && (
-          <p className="flex items-center gap-2 text-xs text-green-400 font-medium">
-            <CheckCircle className="h-4 w-4" aria-hidden /> Recorded at {new Date(todayHandover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
-          </p>
+        {handovers.length > 0 && (
+          <ul className="mt-4 space-y-2" aria-label="Recent handovers">
+            {handovers.slice(0, 5).map(h => (
+              <li key={h.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-gray-300">
+                  ₹{h.amount.toLocaleString('en-IN')} · {new Date(h.handed_over_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                </span>
+                <span className={`flex items-center gap-1 font-medium ${h.admin_approved ? 'text-green-400' : 'text-orange-300'}`}>
+                  {h.admin_approved ? <CheckCircle className="h-4 w-4" aria-hidden /> : <Clock className="h-4 w-4" aria-hidden />}
+                  {h.admin_approved ? 'Received' : 'Waiting for the office'}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </Card>
     </div>

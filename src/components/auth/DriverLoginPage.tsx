@@ -8,6 +8,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 import { supabase } from '@/integrations/supabase/client';
 import { DriverApp } from '@/components/driver/DriverApp';
 import { useOrg } from '@/hooks/useOrg';
+import { fleetLoadState } from '@/lib/fleetLoad';
 
 type Screen = 'phone' | 'pin' | 'register' | 'holding' | 'app';
 
@@ -21,7 +22,8 @@ export function DriverLoginPage({ onSignedIn, onBack }: { onSignedIn?: () => voi
   const [foundDriver, setFoundDriver] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { org } = useOrg();
+  const { org, orgLoading, orgError } = useOrg();
+  const fleetState = fleetLoadState({ hasOrg: !!org, loading: orgLoading, error: orgError });
 
   useEffect(() => {
     const savedDriver = localStorage.getItem('fleetos_driver');
@@ -66,7 +68,7 @@ export function DriverLoginPage({ onSignedIn, onBack }: { onSignedIn?: () => voi
   const handleContinue = () => {
     setError(null);
     if (!org) {
-      setError('Fleet details are still loading. Try again in a moment.');
+      setError(fleetState.status === 'error' ? fleetState.message : 'Fleet details are loading.');
       return;
     }
     setScreen('pin');
@@ -102,7 +104,7 @@ export function DriverLoginPage({ onSignedIn, onBack }: { onSignedIn?: () => voi
   const handleRegister = async () => {
     setError(null);
     if (!org) {
-      setError('Fleet details are still loading. Try again in a moment.');
+      setError(fleetState.status === 'error' ? fleetState.message : 'Fleet details are loading.');
       return;
     }
     setLoading(true);
@@ -145,6 +147,15 @@ export function DriverLoginPage({ onSignedIn, onBack }: { onSignedIn?: () => voi
       </div>
     </div>
   );
+
+  const fleetLine = !error && fleetState.status === 'error' && (
+    <p role="alert" className="mb-4 flex items-start gap-2 text-sm text-destructive">
+      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
+      <span>{fleetState.message}</span>
+    </p>
+  );
+  const fleetWaiting = fleetState.status !== 'ready';
+  const fleetLabel = fleetState.status === 'loading' ? fleetState.buttonLabel : null;
 
   const errorLine = error && (
     <p role="alert" className="mb-4 flex items-start gap-2 text-sm text-destructive">
@@ -199,9 +210,10 @@ export function DriverLoginPage({ onSignedIn, onBack }: { onSignedIn?: () => voi
         </div>
 
         {errorLine}
+        {fleetLine}
 
-        <Button className="w-full h-12 rounded-xl font-semibold" disabled={loading || phone.length !== 10} onClick={handleContinue}>
-          Continue
+        <Button className="w-full h-12 rounded-xl font-semibold" disabled={loading || phone.length !== 10 || fleetWaiting} onClick={handleContinue}>
+          {fleetLabel ?? 'Continue'}
         </Button>
       </>
     );
@@ -226,9 +238,10 @@ export function DriverLoginPage({ onSignedIn, onBack }: { onSignedIn?: () => voi
           />
         </div>
         {errorLine}
-        <Button className="w-full h-12 rounded-xl font-semibold" disabled={loading || !driverName.trim()} onClick={handleRegister}>
+        {fleetLine}
+        <Button className="w-full h-12 rounded-xl font-semibold" disabled={loading || !driverName.trim() || fleetWaiting} onClick={handleRegister}>
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-          Register
+          {fleetLabel ?? 'Register'}
         </Button>
       </>
     );

@@ -9,6 +9,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { type SupabaseDriver } from '@/hooks/useSupabaseData';
 import { useOrg } from '@/hooks/useOrg';
+import { fleetLoadState, plainDbError } from '@/lib/fleetLoad';
+import { markOwnBookingEdit } from '@/lib/adminNotifications';
 import { queueAssignmentMessage } from '@/lib/customerAutomation';
 import { LocationInput } from '@/components/customer/LocationInput';
 import { TripPreviewMap } from '@/components/maps/TripPreviewMap';
@@ -43,7 +45,8 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const { org } = useOrg();
+  const { org, orgLoading, orgError } = useOrg();
+  const fleetState = fleetLoadState({ hasOrg: !!org?.id, loading: orgLoading, error: orgError });
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
@@ -82,8 +85,12 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
       : 'Start with a pickup to build the route preview';
 
   const onSubmit = async (data: FormValues) => {
-    setSubmitLoading(true);
     setSubmitError(null);
+    if (!org?.id) {
+      setSubmitError(fleetState.status === 'error' ? fleetState.message : 'Fleet details are loading.');
+      return;
+    }
+    setSubmitLoading(true);
 
     const scheduledAt = new Date(data.date + 'T' + data.time + ':00').toISOString();
     const normalizedPhone = data.customerPhone.replace(/\D/g, '').slice(0, 10);
@@ -96,11 +103,11 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
     let fare = parseFloat(data.fare) || null;
     if (fare === null) {
       const { data: quote, error: quoteError } = await supabase.rpc('quote_fare', {
-        p_org_id: org!.id,
+        p_org_id: org.id,
         p_booking: { trip_type: data.tripType, vehicle_class: data.vehicleClass, scheduled_at: scheduledAt },
       });
       if (quoteError) {
-        setSubmitError(quoteError.message);
+        setSubmitError(plainDbError(quoteError.message));
         setSubmitLoading(false);
         return;
       }
@@ -111,7 +118,7 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
     const { data: insertedBooking, error } = await db
       .from('bookings')
       .insert({
-        org_id: org!.id,
+        org_id: org.id,
         customer_name: data.customerName,
         customer_phone: normalizedPhone ? `${data.countryCode}${normalizedPhone}` : null,
         trip_type: data.tripType,
@@ -129,11 +136,12 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
       .single();
 
     if (error) {
-      setSubmitError(error.message);
+      setSubmitError(plainDbError(error.message));
       setSubmitLoading(false);
       return;
     }
 
+    markOwnBookingEdit(insertedBooking?.id);
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
     queryClient.invalidateQueries({ queryKey: ['drivers'] });
     if (insertedBooking && assignedDriver) {
@@ -310,12 +318,19 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
               />
             </div>
 
+            {fleetState.status === 'error' && (
+              <p role="alert" className="text-sm text-destructive">{fleetState.message}</p>
+            )}
             {submitError && (
-              <p className="text-sm text-destructive">{submitError}</p>
+              <p role="alert" className="text-sm text-destructive">{submitError}</p>
             )}
 
-            <Button type="submit" className="w-full" disabled={submitLoading}>
-              {submitLoading ? 'Saving...' : 'Save Booking'}
+            <Button type="submit" className="w-full min-h-[44px]" disabled={submitLoading || fleetState.status !== 'ready'}>
+              {submitLoading
+                ? 'Saving...'
+                : fleetState.status === 'loading'
+                  ? fleetState.buttonLabel
+                  : 'Save Booking'}
             </Button>
           </form>
 
