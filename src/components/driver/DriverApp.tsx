@@ -424,7 +424,7 @@ export function DriverApp({ driver }: DriverAppProps) {
           <div className="bg-card rounded-xl p-6 mx-4 max-w-sm w-full">
             <h2 className="text-lg font-semibold mb-1">Log payment collected</h2>
             <p className="text-sm text-muted-foreground mb-4">Fare was ₹{realTrips.find(t => t.id === collectBookingId)?.fare?.toLocaleString('en-IN') ?? collectAmount}</p>
-            <input type="number" className="w-full h-12 border border-border rounded-xl px-4 text-base mb-4 bg-background focus:outline-none focus:ring-2 focus:ring-ring" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} placeholder="Amount collected" />
+            <input type="number" aria-label="Amount collected in rupees" className="w-full h-12 border border-border rounded-xl px-4 text-base mb-4 bg-background focus:outline-none focus:ring-2 focus:ring-ring" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} placeholder="Amount collected" />
             {acceptedMethods.length > 1 ? (
               <div className="flex gap-2 mb-5">
                 {acceptedMethods.map(m => (

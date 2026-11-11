@@ -180,7 +180,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
     <div className="space-y-2">
       <Label>{label}</Label>
       <div className="flex items-center gap-2">
-        <Input readOnly value={value} onFocus={e => e.currentTarget.select()} className="font-mono text-sm" />
+        <Input readOnly aria-label={label} value={value} onFocus={e => e.currentTarget.select()} className="font-mono text-sm" />
         <Button type="button" variant="outline" size="icon" onClick={copy} aria-label={`Copy ${label.toLowerCase()}`}>
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
         </Button>
