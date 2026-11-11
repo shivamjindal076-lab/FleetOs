@@ -246,6 +246,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
               ))}
             </div>
             <Input
+              aria-label="Airport"
               value={`${data.hubCity || 'City'} Airport`}
               disabled
               className={cn(inputClass, 'bg-muted text-sm')}
@@ -274,6 +275,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
               <div key={i} className="flex items-center gap-2">
                 <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/40" aria-hidden />
                 <Input
+                  aria-label={`Stop ${i + 1}`}
                   placeholder={`Stop ${i + 1}`}
                   value={stop}
                   onChange={(e) => updateStop(i, e.target.value)}
@@ -339,7 +341,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
         {data.tripType === 'intercity' && data.isRoundTrip && (
           <div>
             <label className={labelClass}>Return date</label>
-            <Input
+            <Input aria-label="Return date"
               type="date"
               value={data.returnDate}
               onChange={(e) => update({ returnDate: e.target.value })}
@@ -388,7 +390,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Date</label>
-              <Input
+              <Input aria-label="Date"
                 type="date"
                 value={data.date}
                 min={minDate}
@@ -405,6 +407,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
               </label>
               <Input
                 type="time"
+                aria-label={data.tripType === 'airport' ? 'Flight time' : 'Pickup time'}
                 value={data.time}
                 aria-invalid={!!errors.when}
                 aria-describedby={errors.when ? 'err-when' : undefined}
@@ -438,7 +441,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
       <div className="cu-card space-y-3 p-5">
         <div data-field="name">
           <label className={labelClass}>Your name</label>
-          <Input
+          <Input aria-label="Your name"
             placeholder="Full name"
             value={data.customerName}
             autoComplete="name"
@@ -455,7 +458,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
             <div className="flex items-center justify-center rounded-2xl border bg-muted px-3 text-sm font-medium text-muted-foreground">
               +91
             </div>
-            <Input
+            <Input aria-label="Mobile number"
               type="tel"
               maxLength={10}
               placeholder="9876543210"
@@ -556,7 +559,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
             {data.tripType === 'airport' && (
               <div>
                 <label className={labelClass}>Flight number <span className="opacity-60">(optional)</span></label>
-                <Input
+                <Input aria-label="Flight number"
                   placeholder="Flight number"
                   value={data.flightNumber}
                   onChange={(e) => update({ flightNumber: e.target.value })}
@@ -567,6 +570,7 @@ export function BookingForm({ data, onChange, onNext, detailsPrefilled = false, 
             <div>
               <label className={labelClass}>Instructions for driver <span className="opacity-60">(optional)</span></label>
               <textarea
+                aria-label="Notes for the driver"
                 rows={2}
                 placeholder="e.g. Call on arrival, extra luggage, AC preferred..."
                 value={data.notes}

@@ -262,7 +262,7 @@ export function DispatchEngine({ booking, open, onClose, onAssign }: DispatchEng
                       </div>
                     </div>
                     <div className="flex gap-1.5">
-                      <Button size="icon" variant="outline" className="h-8 w-8">
+                      <Button size="icon" variant="outline" className="h-8 w-8" aria-label="Call driver">
                         <Phone className="h-3.5 w-3.5" />
                       </Button>
                       <Button

@@ -30,7 +30,7 @@ export function TopHeader({ activeTab = 'dashboard', onNewBooking, onTabChange }
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
+        <input aria-label="Search bookings and drivers"
           type="text"
           placeholder="Search bookings, drivers..."
           className="bg-muted rounded-xl py-3 pl-12 pr-4 w-72 text-sm border-none outline-none focus:ring-2 focus:ring-primary/20 font-label"
@@ -57,7 +57,7 @@ export function TopHeader({ activeTab = 'dashboard', onNewBooking, onTabChange }
 
       {/* Right actions */}
       <div className="flex items-center gap-3">
-        <button type="button" className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors">
+        <button type="button" aria-label="Notifications" className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors">
           <Bell className="h-4 w-4 text-muted-foreground" />
         </button>
         <button

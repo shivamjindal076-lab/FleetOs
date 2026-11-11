@@ -474,7 +474,9 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
               )}
               <div className="space-y-2">
                 {pendingBookings.map((booking) => (
-                  <div key={booking.id} onClick={() => setDetailBooking(booking)} className="cursor-pointer">
+                  <div key={booking.id} role="button" tabIndex={0} onClick={() => setDetailBooking(booking)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailBooking(booking); } }}
+                    className="cursor-pointer rounded-xl">
                     <Card className="p-4 shadow-card rounded-xl">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -646,7 +648,7 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
                           <p className="text-xs text-muted-foreground">Joined {new Date(driver.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <select value={vehicleSelections[driver.id] || 'Maruti Swift'} onChange={e => setVehicleSelections(prev => ({ ...prev, [driver.id]: e.target.value }))} className="text-xs border rounded px-2 py-1">
+                          <select aria-label={`Car model for ${driver.name ?? 'driver'}`} value={vehicleSelections[driver.id] || 'Maruti Swift'} onChange={e => setVehicleSelections(prev => ({ ...prev, [driver.id]: e.target.value }))} className="text-xs border rounded px-2 py-1">
                             {['Maruti Swift', 'Toyota Innova', 'Mahindra Scorpio', 'Tata Nexon', 'Maruti Ertiga', 'Other'].map(v => <option key={v}>{v}</option>)}
                           </select>
                           <select
@@ -966,6 +968,7 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
           </DialogHeader>
           <div className="space-y-4">
             <textarea
+              aria-label="Driver instructions"
               value={notesDraft}
               onChange={(event) => setNotesDraft(event.target.value)}
               placeholder="Call on arrival, gate number, luggage notes..."

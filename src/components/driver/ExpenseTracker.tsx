@@ -104,8 +104,8 @@ export function ExpenseTracker({
         </div>
         {addingCollection && (
           <div className="mb-3 p-3 rounded-xl bg-gray-800 border border-gray-700 space-y-2.5">
-            <input type="number" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Amount (₹)" value={colAmount} onChange={e => setColAmount(e.target.value)} />
-            <input className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Note (optional)" value={colNote} onChange={e => setColNote(e.target.value)} />
+            <input aria-label="Amount (₹)" type="number" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Amount (₹)" value={colAmount} onChange={e => setColAmount(e.target.value)} />
+            <input aria-label="Note (optional)" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-green-500" placeholder="Note (optional)" value={colNote} onChange={e => setColNote(e.target.value)} />
             {accepted.length > 1 ? (
               <div className="flex gap-2">
                 {accepted.map(m => (
@@ -153,8 +153,8 @@ export function ExpenseTracker({
                 </button>
               ))}
             </div>
-            <input type="number" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Amount (₹)" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
-            <input className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Note (optional)" value={expNote} onChange={e => setExpNote(e.target.value)} />
+            <input aria-label="Amount (₹)" type="number" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Amount (₹)" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+            <input aria-label="Note (optional)" className="w-full px-3 h-11 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-orange-500" placeholder="Note (optional)" value={expNote} onChange={e => setExpNote(e.target.value)} />
             <button onClick={submitExpense} className="w-full min-h-[44px] rounded-lg bg-orange-500 text-gray-950 text-sm font-semibold active:scale-95 transition-all">Save expense</button>
           </div>
         )}

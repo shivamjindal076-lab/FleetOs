@@ -120,6 +120,7 @@ export function LocationInput({ value, onChange, placeholder, icon = 'drop' }: L
         </div>
         <Input
           placeholder={placeholder}
+          aria-label={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => {
@@ -136,7 +137,7 @@ export function LocationInput({ value, onChange, placeholder, icon = 'drop' }: L
         <Popover open={infoOpen} onOpenChange={setInfoOpen}>
           <PopoverTrigger asChild>
             <button
-              type="button"
+              type="button" aria-label="About address search"
               className="absolute right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full bg-muted flex items-center justify-center"
             >
               <Info className="h-3.5 w-3.5 text-muted-foreground" />

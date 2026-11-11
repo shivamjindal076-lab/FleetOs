@@ -156,7 +156,7 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
           <form onSubmit={handleSubmit(onSubmit)} className="order-2 space-y-4 lg:order-1">
             <div>
               <label className="mb-1.5 block text-sm font-medium">Customer name</label>
-              <Input
+              <Input aria-label="Customer name"
                 autoFocus
                 placeholder="Full name"
                 {...register('customerName', { required: true })}
@@ -167,7 +167,7 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
             <div>
               <label className="mb-1.5 block text-sm font-medium">Phone</label>
               <div className="flex items-center gap-2">
-                <select
+                <select aria-label="Country code"
                   {...register('countryCode')}
                   className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
@@ -175,7 +175,7 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
                     <option key={code} value={code}>{code}</option>
                   ))}
                 </select>
-                <Input
+                <Input aria-label="Phone number"
                   type="tel"
                   placeholder="10-digit number"
                   maxLength={10}
@@ -214,7 +214,7 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
 
             <div>
               <label className="mb-1.5 block text-sm font-medium">Car size</label>
-              <select
+              <select aria-label="Car size"
                 {...register('vehicleClass')}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
@@ -249,11 +249,11 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Date</label>
-                <Input type="date" {...register('date')} />
+                <Input aria-label="Date" type="date" {...register('date')} />
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Time</label>
-                <Input type="time" {...register('time')} />
+                <Input aria-label="Time" type="time" {...register('time')} />
               </div>
             </div>
 
@@ -261,13 +261,13 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
               <label className="mb-1.5 block text-sm font-medium">Fare</label>
               <div className="flex items-center gap-2">
                 <span className="rounded-md border border-input bg-muted px-3 py-2 text-sm font-medium text-muted-foreground">Rs</span>
-                <Input type="number" placeholder="Leave empty for the rate card fare" {...register('fare')} className="flex-1" />
+                <Input aria-label="Fare" type="number" placeholder="Leave empty for the rate card fare" {...register('fare')} className="flex-1" />
               </div>
             </div>
 
             <div>
               <label className="mb-1.5 block text-sm font-medium">Assign driver</label>
-              <select
+              <select aria-label="Assign driver"
                 {...register('driverId')}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
@@ -302,7 +302,7 @@ export function NewBookingSheet({ open, onClose, drivers }: NewBookingSheetProps
 
             <div>
               <label className="mb-1.5 block text-sm font-medium">Notes</label>
-              <textarea
+              <textarea aria-label="Notes"
                 rows={3}
                 placeholder="Any special instructions..."
                 {...register('notes')}
