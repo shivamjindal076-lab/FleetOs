@@ -6,8 +6,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { LOOKUP_FAILED_MESSAGE } from '@/lib/mapsProxy';
 import {
-  OlaMapsApiError,
   hasLocationSearchProvider,
   olaAutocomplete,
   olaPlaceDetails,
@@ -61,15 +61,11 @@ export function LocationInput({ value, onChange, placeholder, icon = 'drop' }: L
         if (requestId !== requestIdRef.current) return;
         setPredictions(results);
         setSearchOpen(results.length > 0);
-      } catch (error) {
+        if (results.length === 0) setSearchError(LOOKUP_FAILED_MESSAGE);
+      } catch {
         if (requestId !== requestIdRef.current) return;
 
-        if (error instanceof OlaMapsApiError && [401, 403].includes(error.status)) {
-          setSearchError('Primary location search is being rejected. FleetOs is trying the backup providers.');
-        } else {
-          setSearchError('Location suggestions are temporarily unavailable. You can still type the address manually.');
-        }
-
+        setSearchError(LOOKUP_FAILED_MESSAGE);
         setPredictions([]);
         setSearchOpen(false);
       } finally {
@@ -94,14 +90,9 @@ export function LocationInput({ value, onChange, placeholder, icon = 'drop' }: L
       const details = await olaPlaceDetails(prediction.place_id, prediction.description);
       onChange(details?.address || prediction.description);
       setSearchError(null);
-    } catch (error) {
+    } catch {
+      // Keep what the customer picked; the route preview looks it up again.
       onChange(prediction.description);
-
-      if (error instanceof OlaMapsApiError && [401, 403].includes(error.status)) {
-        setSearchError('Primary location search is being rejected. FleetOs kept the typed address and will continue with backup maps.');
-      } else {
-        setSearchError('Exact location lookup failed, so the typed address was kept as-is.');
-      }
     } finally {
       setLoading(false);
       setPredictions([]);
@@ -132,36 +123,35 @@ export function LocationInput({ value, onChange, placeholder, icon = 'drop' }: L
           className="pl-9 pr-10 h-12 rounded-lg"
         />
         {loading && (
-          <Loader2 className="absolute right-11 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          <Loader2 className="absolute right-12 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
         )}
         <Popover open={infoOpen} onOpenChange={setInfoOpen}>
           <PopoverTrigger asChild>
             <button
-              type="button" aria-label="About address search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full bg-muted flex items-center justify-center"
+              type="button" aria-label="Tips for entering an address"
+              className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted">
+                <Info className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              </span>
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-72 p-4 text-sm" align="end">
-            <div className="flex justify-between items-start mb-2">
+            <div className="mb-2 flex items-start justify-between">
               <p className="font-semibold text-foreground">How to share your exact location</p>
-              <button onClick={() => setInfoOpen(false)}><X className="h-4 w-4 text-muted-foreground" /></button>
+              <button
+                type="button"
+                aria-label="Close tips"
+                onClick={() => setInfoOpen(false)}
+                className="-mr-3 -mt-3 flex h-11 w-11 items-center justify-center"
+              >
+                <X className="h-4 w-4 text-muted-foreground" aria-hidden />
+              </button>
             </div>
-            <div className="space-y-2 text-muted-foreground text-xs">
-              <p><strong className="text-foreground">Option 1</strong> — Type your address normally</p>
-              <p><strong className="text-foreground">Option 2</strong> — Use a Google Plus Code</p>
-              <div className="bg-muted rounded-lg p-3 space-y-1">
-                <p className="font-medium text-foreground">To get your Plus Code:</p>
-                <ol className="list-decimal list-inside space-y-0.5">
-                  <li>Open Google Maps</li>
-                  <li>Long press your exact location</li>
-                  <li>Tap the Plus Code shown at the top</li>
-                  <li>Copy and paste it here</li>
-                </ol>
-              </div>
-              <p>Plus Codes work even without a street address.</p>
-              <p className="font-medium text-foreground">Example: 7JVW+XG Jaipur</p>
+            <div className="space-y-2 text-xs text-muted-foreground">
+              <p><strong className="text-foreground">Type it</strong> - a street, area or landmark.</p>
+              <p><strong className="text-foreground">Drop a pin</strong> - tap Choose on map and move the map until the pin is on the spot.</p>
+              <p><strong className="text-foreground">Use a Plus Code</strong> - a short code such as 7JVW+XG Jaipur works even without a street address.</p>
             </div>
           </PopoverContent>
         </Popover>
@@ -190,9 +180,6 @@ export function LocationInput({ value, onChange, placeholder, icon = 'drop' }: L
                   </span>
                 </button>
               ))}
-            </div>
-            <div className="border-t border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
-              Search uses Ola first, then Mappls and open fallback providers
             </div>
           </div>
         )}

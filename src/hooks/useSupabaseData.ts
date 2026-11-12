@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useOrg } from './useOrg';
+import { addIstDays, collectionsOrFilter, istDateString, istDayRange } from '@/lib/istDay';
 
 // db() casts to any so new tables (drivers, bookings, cash_handovers_v2, etc.)
 // work before Supabase types are regenerated post-migration.
@@ -75,6 +76,7 @@ export interface CashHandover {
   amount: number;
   handed_over_at: string;
   admin_approved: boolean;
+  admin_notes?: string | null;
 }
 
 export interface OrgPricing {
@@ -202,15 +204,11 @@ export function useMyDriverProfile() {
 }
 
 function startOfTodayISO() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+  return istDayRange(istDateString(new Date())).startISO;
 }
 
 function endOfTodayISO() {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d.toISOString();
+  return istDayRange(istDateString(new Date())).endISO;
 }
 
 export function useTodayHandover(driverId: number | null | undefined) {
@@ -227,7 +225,7 @@ export function useTodayHandover(driverId: number | null | undefined) {
         .eq('org_id', org!.id)
         .eq('driver_id', driverId)
         .gte('handed_over_at', start)
-        .lte('handed_over_at', end)
+        .lt('handed_over_at', end)
         .order('handed_over_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -250,7 +248,7 @@ export function useTodayCashHandovers() {
         .select('id, driver_id, amount, handed_over_at, admin_approved')
         .eq('org_id', org!.id)
         .gte('handed_over_at', start)
-        .lte('handed_over_at', end)
+        .lt('handed_over_at', end)
         .order('handed_over_at', { ascending: false });
       if (error) throw error;
       return (data ?? []) as CashHandover[];
@@ -259,19 +257,21 @@ export function useTodayCashHandovers() {
   });
 }
 
+const COLLECTION_COLUMNS = 'id, customer_name, pickup, drop, fare, payment_method, amount_collected, payment_confirmed_at, trip_completed_at, scheduled_at, status, driver_id';
+
+// Collections count on the day the money came in (paid, else completed), not the day the trip
+// was scheduled. Trips still unpaid and not done show on their scheduled day.
 export function useCollectionsByDate(date: string) {
   const { org } = useOrg();
   return useQuery({
     queryKey: ['collections', date, org?.id],
     queryFn: async () => {
-      const start = new Date(date); start.setHours(0, 0, 0, 0);
-      const end = new Date(date); end.setHours(23, 59, 59, 999);
+      const { startISO, endISO } = istDayRange(date);
       const { data, error } = await db
         .from('bookings')
-        .select('id, customer_name, pickup, drop, fare, payment_method, amount_collected, payment_confirmed_at, scheduled_at, status, driver_id')
+        .select(COLLECTION_COLUMNS)
         .eq('org_id', org!.id)
-        .gte('scheduled_at', start.toISOString())
-        .lte('scheduled_at', end.toISOString())
+        .or(collectionsOrFilter(startISO, endISO))
         .order('scheduled_at', { ascending: false });
       if (error) throw error;
       return data || [];
@@ -285,14 +285,12 @@ export function useCollectionsByRange(startDate: string, endDate: string) {
   return useQuery({
     queryKey: ['collections-range', startDate, endDate, org?.id],
     queryFn: async () => {
-      const start = new Date(startDate); start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate); end.setHours(23, 59, 59, 999);
+      const { startISO, endISO } = istDayRange(startDate, endDate);
       const { data, error } = await db
         .from('bookings')
-        .select('id, customer_name, pickup, drop, fare, payment_method, amount_collected, payment_confirmed_at, scheduled_at, status, driver_id')
+        .select(COLLECTION_COLUMNS)
         .eq('org_id', org!.id)
-        .gte('scheduled_at', start.toISOString())
-        .lte('scheduled_at', end.toISOString())
+        .or(collectionsOrFilter(startISO, endISO))
         .order('scheduled_at', { ascending: true });
       if (error) throw error;
       return data || [];
@@ -325,21 +323,93 @@ export function useDriverCollections(driverId: number, period: 'day' | 'week' | 
   return useQuery({
     queryKey: ['driver-collections', driverId, period, org?.id],
     queryFn: async () => {
-      const start = new Date();
-      if (period === 'day') start.setHours(0, 0, 0, 0);
-      if (period === 'week') { start.setDate(start.getDate() - 7); start.setHours(0, 0, 0, 0); }
-      if (period === 'month') { start.setDate(start.getDate() - 30); start.setHours(0, 0, 0, 0); }
+      const today = istDateString(new Date());
+      const firstDay = period === 'day' ? today : addIstDays(today, period === 'week' ? -7 : -30);
+      const { startISO } = istDayRange(firstDay);
 
       const { data, error } = await db
         .from('bookings')
-        .select('id, fare, amount_collected, payment_confirmed_at, scheduled_at, customer_name, pickup, drop, status, payment_method')
+        .select('id, fare, amount_collected, payment_confirmed_at, trip_completed_at, scheduled_at, customer_name, pickup, drop, status, payment_method')
         .eq('org_id', org!.id)
         .eq('driver_id', driverId)
-        .gte('scheduled_at', start.toISOString())
+        .or(collectionsOrFilter(startISO))
         .order('scheduled_at', { ascending: false });
       if (error) throw error;
       return data || [];
     },
     enabled: !!driverId && !!org,
+  });
+}
+
+const RIDE_COLUMNS = 'id, driver_id, customer_name, pickup, drop, fare, payment_method, amount_collected, payment_confirmed_at, trip_completed_at, scheduled_at, status';
+
+export type CompletedRide = Pick<SupabaseBooking,
+  'id' | 'driver_id' | 'customer_name' | 'pickup' | 'drop' | 'fare' | 'payment_method' | 'amount_collected'
+  | 'payment_confirmed_at' | 'trip_completed_at' | 'scheduled_at' | 'status'>;
+
+// One driver's completed rides, newest first. The driver app and the owner's driver view share it.
+export function useDriverCompletedRides(driverId: number | null | undefined) {
+  const { org } = useOrg();
+  return useQuery({
+    queryKey: ['driver-completed', driverId, org?.id],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from('bookings')
+        .select(RIDE_COLUMNS)
+        .eq('org_id', org!.id)
+        .eq('driver_id', driverId!)
+        .eq('status', 'completed')
+        .order('trip_completed_at', { ascending: false, nullsFirst: false })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []) as CompletedRide[];
+    },
+    enabled: driverId != null && !!org,
+  });
+}
+
+// Every completed ride in the fleet, just the columns needed to count them per driver.
+export function useCompletedRideCounts() {
+  const { org } = useOrg();
+  return useQuery({
+    queryKey: ['completed-counts', org?.id],
+    queryFn: async () => {
+      const rows: Pick<SupabaseBooking, 'id' | 'driver_id' | 'status' | 'trip_completed_at' | 'payment_confirmed_at' | 'scheduled_at'>[] = [];
+      const page = 1000;
+      for (let from = 0; ; from += page) {
+        const { data, error } = await db
+          .from('bookings')
+          .select('id, driver_id, status, trip_completed_at, payment_confirmed_at, scheduled_at')
+          .eq('org_id', org!.id)
+          .eq('status', 'completed')
+          .not('driver_id', 'is', null)
+          .order('id')
+          .range(from, from + page - 1);
+        if (error) throw error;
+        rows.push(...(data ?? []));
+        if (!data || data.length < page) break;
+      }
+      return rows;
+    },
+    enabled: !!org,
+  });
+}
+
+// Handovers, newest first: the latest ones for the owner to see and mark received.
+export function useRecentCashHandovers(limit = 30) {
+  const { org } = useOrg();
+  return useQuery({
+    queryKey: ['cash-handovers', 'recent', limit, org?.id],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from('cash_handovers_v2')
+        .select('id, org_id, driver_id, amount, handed_over_at, admin_approved, admin_notes')
+        .eq('org_id', org!.id)
+        .order('handed_over_at', { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return (data ?? []) as CashHandover[];
+    },
+    enabled: !!org,
   });
 }

@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus, AlertTriangle, FileText } from 'lucide-react';
+import { History, Car, MapPin, Calendar, Users, Clock, Phone, ChevronRight, Activity, Loader2, CheckCircle, Plus, AlertTriangle, FileText } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { useDrivers, useBookings, useTodayCashHandovers, useDriverCollections, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
+import { useDrivers, useBookings, useTodayCashHandovers, useDriverCollections, useRecentCashHandovers, useCompletedRideCounts, useDriverCompletedRides, tripTypeLabels, getDriverInitials, type SupabaseBooking, type SupabaseDriver } from '@/hooks/useSupabaseData';
 import { useOrg } from '@/hooks/useOrg';
 import { DispatchEngine } from './DispatchEngine';
 import { PaymentSummary } from './PaymentSummary';
@@ -25,6 +25,10 @@ import { TripTypeIcon } from '@/components/TripTypeIcon';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { CompletedRidesList } from '@/components/CompletedRidesList';
+import { countCompletedByDriver } from '@/lib/rideHistory';
+import { istDateString } from '@/lib/istDay';
+import { markOwnBookingEdit } from '@/lib/adminNotifications';
 
 type Tab = 'today' | 'fleet' | 'collections';
 
@@ -71,79 +75,88 @@ const getPaymentBadge = (booking: SupabaseBooking) => {
   if (collected > 0) return 'partial';
   return 'unpaid';
 };
+// Cash the drivers say they handed to the office. The owner marks each one received once the
+// money is in hand. Flagging keeps it listed with a note so it is not lost.
 function PendingHandovers() {
   const queryClient = useQueryClient();
   const { data: drivers = [] } = useDrivers();
-  const { org } = useOrg();
-  const [handovers, setHandovers] = useState<any[]>([]);
+  const { data: handovers = [], isError } = useRecentCashHandovers(30);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!org) return;
-    const fetch = async () => {
-      const client = supabase;
-      const res = await client
-        .from('cash_handovers_v2')
-        .select('*')
-        .eq('org_id', org.id)
-        .eq('admin_approved', false)
-        .order('handed_over_at', { ascending: false });
-      setHandovers(res.data || []);
-    };
-    fetch();
-  }, [org]);
+  const getDriverName = (id: number) => drivers.find(d => d.id === id)?.name ?? 'Unknown driver';
+  const open = handovers.filter(h => !h.admin_approved);
+  const received = handovers.filter(h => h.admin_approved).slice(0, 5);
+  const when = (iso: string) => new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
 
-  const getDriverName = (id: number) => drivers.find(d => d.id === id)?.name ?? 'Unknown';
+  const update = async (id: number, patch: { admin_approved?: boolean; admin_notes?: string }, done: string) => {
+    setBusyId(id);
+    const { error } = await supabase.from('cash_handovers_v2').update(patch).eq('id', id);
+    setBusyId(null);
+    if (error) {
+      toast.error("Could not update that handover. Try again.");
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ['cash-handovers'] });
+    toast(done);
+  };
 
-  if (handovers.length === 0) return null;
+  if (isError) {
+    return <Card className="p-4 rounded-xl text-sm text-destructive" role="alert">Could not load cash handovers. Refresh the page.</Card>;
+  }
+  if (open.length === 0 && received.length === 0) return null;
 
   return (
     <Card className="p-5 shadow-card rounded-xl">
       <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
-        <CheckCircle className="h-4 w-4 text-warning" />
-        Pending Handovers ({handovers.length})
+        <CheckCircle className="h-4 w-4 text-warning" aria-hidden />
+        Cash handovers {open.length > 0 ? `(${open.length} waiting)` : ''}
       </h3>
+      {open.length === 0 && <p className="text-xs text-muted-foreground mb-3">Nothing waiting. All handovers are marked received.</p>}
       <div className="space-y-2">
-        {handovers.map((h: any) => (
-          <div key={h.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
+        {open.map(h => (
+          <div key={h.id} className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-xl">
             <div>
               <p className="text-sm font-semibold">{getDriverName(h.driver_id)}</p>
-              <p className="text-xs text-muted-foreground">
-                ₹{h.amount.toLocaleString('en-IN')} · {new Date(h.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
-              </p>
+              <p className="text-xs text-muted-foreground">₹{Number(h.amount).toLocaleString('en-IN')} · {when(h.handed_over_at)}</p>
+              {h.admin_notes && <p className="text-xs text-warning font-medium">Flagged: {h.admin_notes}</p>}
             </div>
             <div className="flex gap-2">
               <Button
                 size="sm"
-                className="bg-success text-success-foreground hover:bg-success/90 rounded-lg text-xs"
-                onClick={async () => {
-                  await (supabase.from('cash_handovers_v2'))
-                    .update({ admin_approved: true })
-                    .eq('id', h.id);
-                  setHandovers(prev => prev.filter(x => x.id !== h.id));
-                  queryClient.invalidateQueries({ queryKey: ['pending-handovers'] });
-                  toast('Handover approved ✓');
-                }}
+                disabled={busyId === h.id}
+                className="min-h-[44px] bg-success text-success-foreground hover:bg-success/90 rounded-lg text-xs"
+                onClick={() => update(h.id, { admin_approved: true }, `Marked the handover of ₹${Number(h.amount).toLocaleString('en-IN')} from ${getDriverName(h.driver_id)} as received`)}
               >
-                Approve
+                Mark received
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs"
-                onClick={async () => {
-                  await (supabase.from('cash_handovers_v2'))
-                    .update({ admin_notes: 'Flagged for review' })
-                    .eq('id', h.id);
-                  setHandovers(prev => prev.filter(x => x.id !== h.id));
-                  toast('Handover flagged');
-                }}
-              >
-                Flag
-              </Button>
+              {!h.admin_notes && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busyId === h.id}
+                  className="min-h-[44px] border-destructive text-destructive hover:bg-destructive/10 rounded-lg text-xs"
+                  onClick={() => update(h.id, { admin_notes: 'Flagged for review' }, 'Handover flagged for review')}
+                >
+                  Flag
+                </Button>
+              )}
             </div>
           </div>
         ))}
       </div>
+      {received.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold text-muted-foreground mb-1">Recently received</p>
+          <ul className="space-y-1">
+            {received.map(h => (
+              <li key={h.id} className="flex items-center justify-between text-xs">
+                <span>{getDriverName(h.driver_id)} · ₹{Number(h.amount).toLocaleString('en-IN')}</span>
+                <span className="text-muted-foreground">{when(h.handed_over_at)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
   );
 }
@@ -195,6 +208,20 @@ function DriverCollectionPanel({ driverId, period }: { driverId: number; period:
     </div>
   );
 }
+function DriverRidesSheet({ driver, onClose }: { driver: SupabaseDriver | null; onClose: () => void }) {
+  const { data: rides = [], isLoading, isError } = useDriverCompletedRides(driver?.id);
+  return (
+    <Sheet open={!!driver} onOpenChange={open => { if (!open) onClose(); }}>
+      <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+        <SheetHeader className="mb-4">
+          <SheetTitle>{driver?.name ?? 'Driver'}: completed rides</SheetTitle>
+        </SheetHeader>
+        <CompletedRidesList variant="light" rides={rides} loading={isLoading} error={isError} />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: AdminDashboardProps) {
   const [tab, setTab] = useState<Tab>('today');
   const [dispatchBooking, setDispatchBooking] = useState<SupabaseBooking | null>(null);
@@ -234,7 +261,10 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
   const { data: drivers = [], isLoading: driversLoading } = useDrivers();
   const { data: bookings = [], isLoading: bookingsLoading } = useBookings();
   const { data: todayHandovers = [] } = useTodayCashHandovers();
-  const todayDate = new Date().toISOString().split('T')[0];
+  const { data: completedRideRows = [] } = useCompletedRideCounts();
+  const rideCounts = countCompletedByDriver(completedRideRows);
+  const [ridesDriver, setRidesDriver] = useState<SupabaseDriver | null>(null);
+  const todayDate = istDateString(new Date());
   const now = new Date();
   const nextWeek = addDays(now, 7);
 
@@ -249,7 +279,7 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
   const getDriverCashToday = (driverId: number) =>
     bookings.filter(
       b => b.driver_id === driverId &&
-        b.payment_confirmed_at?.startsWith(todayDate) &&
+        b.payment_confirmed_at && istDateString(b.payment_confirmed_at) === todayDate &&
         b.payment_method === 'cash'
     ).reduce((s, b) => s + (b.amount_collected ?? 0), 0);
 
@@ -368,10 +398,11 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
     setPaymentLoading(true);
     setPaymentError(null);
 
+    markOwnBookingEdit(paymentBooking.id);
     const { error } = await supabase
       .from('bookings')
       .update({
-        amount_collected: Number(paymentAmount),
+        amount_collected: Math.round(Number(paymentAmount) * 100) / 100,
         payment_method: paymentMethod,
         payment_confirmed_at: new Date().toISOString(),
       })
@@ -682,7 +713,9 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
               <Card className="p-6 shadow-card rounded-xl text-center text-sm text-muted-foreground">No drivers found. Add drivers in Supabase.</Card>
             )}
             {drivers.map((driver) => {
-              const handover = todayHandovers.find(h => h.driver_id === driver.id);
+              const driverHandovers = todayHandovers.filter(h => h.driver_id === driver.id);
+              const handedOverToday = driverHandovers.reduce((sum, h) => sum + Number(h.amount), 0);
+              const counts = rideCounts.get(driver.id);
               const driverCashToday = getDriverCashToday(driver.id);
               const isExpanded = expandedDriverId === driver.id;
               return (
@@ -711,14 +744,14 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
                       </p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="text-xs font-medium capitalize">{(driver.status ?? 'offline').replace('-', ' ')}</span>
-                        {handover && (
+                        {driverHandovers.length > 0 && (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/30 font-medium">
-                            Handed over ₹{handover.amount.toLocaleString('en-IN')} at {new Date(handover.handed_over_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                            Handed over ₹{handedOverToday.toLocaleString('en-IN')} today{driverHandovers.length > 1 ? ` (${driverHandovers.length} times)` : ''}
                           </span>
                         )}
-                        {!handover && driverCashToday > 0 && (
+                        {driverCashToday > 0 && (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 font-medium">
-                            ₹{driverCashToday.toLocaleString('en-IN')} pending handover
+                            ₹{driverCashToday.toLocaleString('en-IN')} cash collected today
                           </span>
                         )}
                       </div>
@@ -743,6 +776,22 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
                         </Button>
                       )}
                     </div>
+                  </div>
+
+                  {/* Completed rides */}
+                  <div className="flex items-center justify-between gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">{counts?.total ?? 0}</span> completed rides ·{' '}
+                      <span className="font-semibold text-foreground">{counts?.month ?? 0}</span> this month
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="min-h-[44px] rounded-lg text-xs"
+                      onClick={() => setRidesDriver(driver)}
+                    >
+                      <History className="h-3.5 w-3.5 mr-1" aria-hidden /> Completed rides
+                    </Button>
                   </div>
 
                   {/* Location button row */}
@@ -834,6 +883,8 @@ export function AdminDashboard({ activeSection = 'dashboard', onOpenPricing }: A
         onClose={() => setShowNewBooking(false)}
         drivers={drivers}
       />
+
+      <DriverRidesSheet driver={ridesDriver} onClose={() => setRidesDriver(null)} />
 
       <AddDriverSheet open={showAddDriver} onClose={() => setShowAddDriver(false)} />
 

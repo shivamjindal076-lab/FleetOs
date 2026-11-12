@@ -1,13 +1,15 @@
 import { Card } from '@/components/ui/card';
 import { type SupabaseBooking } from '@/hooks/useSupabaseData';
+import { collectionDay, istDateString } from '@/lib/istDay';
 
 interface PaymentSummaryProps {
   bookings: SupabaseBooking[];
 }
 
 export function PaymentSummary({ bookings }: PaymentSummaryProps) {
-  const today = new Date().toISOString().split('T')[0];
-  const todayBookings = bookings.filter(b => b.scheduled_at?.startsWith(today));
+  // Counted on the day the money came in (paid, else completed, else scheduled), in IST.
+  const today = istDateString(new Date());
+  const todayBookings = bookings.filter(b => collectionDay(b) === today);
 
   const totalFare = todayBookings.reduce((sum, b) => sum + (b.fare ?? 0), 0);
   const totalCollected = todayBookings
@@ -37,8 +39,8 @@ export function PaymentSummary({ bookings }: PaymentSummaryProps) {
       <p className="text-xs text-muted-foreground mb-3">collected today</p>
 
       <div className="flex items-center divide-x divide-border mb-3">
-        <span className="text-xs pr-3">{cashTotal.toLocaleString('en-IN')} cash</span>
-        <span className="text-xs px-3">{upiTotal.toLocaleString('en-IN')} digital</span>
+        <span className="text-xs pr-3">₹{cashTotal.toLocaleString('en-IN')} cash</span>
+        <span className="text-xs px-3">₹{upiTotal.toLocaleString('en-IN')} digital</span>
         <span className={`text-xs pl-3 ${pendingCount > 0 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
           {pendingCount} pending
         </span>

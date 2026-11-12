@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { entriesSince } from '@/lib/cash';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables, TablesInsert } from '@/integrations/supabase/types';
@@ -25,31 +25,54 @@ export function rowToCollection(r: CashEntryRow): CashCollection {
   };
 }
 
-// The driver's money for today: expenses and collections (saved to driver_cash_entries) and the
-// cash handover. An entry stays marked isOffline until the database has it, so the pending
-// count shows what didn't upload.
-export function useDriverCash(driverId: number | undefined, orgId: string | undefined, onHandoverSaved: () => void) {
-  const queryClient = useQueryClient();
-  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
-  const [collections, setCollections] = useState<CashCollection[]>([]);
-  const [handoverLoading, setHandoverLoading] = useState(false);
+export interface DriverHandover {
+  id: number;
+  amount: number;
+  handed_over_at: string;
+  admin_approved: boolean;
+}
 
-  useEffect(() => {
+// The driver's money since the last handover: expenses and collections (saved to
+// driver_cash_entries) and the cash handovers. A driver can hand over more than once a day, and
+// cash not yet handed over carries into the next day. An entry stays marked isOffline until the
+// database has it, so the pending count shows what didn't upload.
+export function useDriverCash(driverId: number | undefined, orgId: string | undefined) {
+  const [allExpenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [allCollections, setCollections] = useState<CashCollection[]>([]);
+  const [handovers, setHandovers] = useState<DriverHandover[]>([]);
+  const [handoverLoading, setHandoverLoading] = useState(false);
+  const lastHandoverAt = handovers[0]?.handed_over_at ?? null;
+
+  const refreshCash = useCallback(async () => {
     if (!driverId) return;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    supabase
+    const { data: hv } = await supabase
+      .from('cash_handovers_v2')
+      .select('id, amount, handed_over_at, admin_approved')
+      .eq('driver_id', driverId)
+      .order('handed_over_at', { ascending: false })
+      .limit(10);
+    const list: DriverHandover[] = (hv ?? []).map(h => ({
+      id: h.id, amount: Number(h.amount), handed_over_at: h.handed_over_at, admin_approved: !!h.admin_approved,
+    }));
+    setHandovers(list);
+
+    let query = supabase
       .from('driver_cash_entries')
       .select('id, kind, category, method, label, amount, note, booking_id, created_at')
       .eq('driver_id', driverId)
-      .gte('created_at', start.toISOString())
-      .order('created_at')
-      .then(({ data }) => {
-        if (!data) return;
-        setExpenses(data.filter(r => r.kind === 'expense').map(rowToExpense));
-        setCollections(data.filter(r => r.kind === 'collection').map(rowToCollection));
-      });
+      .order('created_at');
+    if (list[0]) query = query.gt('created_at', list[0].handed_over_at);
+    const { data } = await query;
+    if (!data) return;
+    // Keep entries that haven't uploaded yet.
+    setExpenses(prev => [...data.filter(r => r.kind === 'expense').map(rowToExpense), ...prev.filter(e => e.isOffline)]);
+    setCollections(prev => [...data.filter(r => r.kind === 'collection').map(rowToCollection), ...prev.filter(c => c.isOffline)]);
   }, [driverId]);
+
+  useEffect(() => { void refreshCash(); }, [refreshCash]);
+
+  const expenses = useMemo(() => entriesSince(allExpenses, lastHandoverAt), [allExpenses, lastHandoverAt]);
+  const collections = useMemo(() => entriesSince(allCollections, lastHandoverAt), [allCollections, lastHandoverAt]);
 
   const saveCashEntry = async (row: Omit<TablesInsert<'driver_cash_entries'>, 'org_id' | 'driver_id'>) => {
     if (!driverId || !orgId) return null;
@@ -86,21 +109,22 @@ export function useDriverCash(driverId: number | undefined, orgId: string | unde
   };
 
   const handleHandOver = async (amount: number) => {
-    if (!driverId || !orgId) return;
+    if (!driverId || !orgId || !(amount > 0)) return;
     setHandoverLoading(true);
+    // handed_over_at is left to the database clock, so it lines up with each entry's created_at.
     const { error } = await supabase
       .from('cash_handovers_v2')
-      .insert({ org_id: orgId, driver_id: driverId, amount: Math.round(amount * 100) / 100, handed_over_at: new Date().toISOString() });
+      .insert({ org_id: orgId, driver_id: driverId, amount: Math.round(amount * 100) / 100 });
     if (error) {
       toast.error("Handover wasn't saved. Check your connection and try again.");
     } else {
-      await queryClient.invalidateQueries({ queryKey: ['cash-handovers'] });
-      onHandoverSaved();
+      await refreshCash();
+      toast('Handover recorded. The office will mark it received.');
     }
     setHandoverLoading(false);
   };
 
-  const pendingSyncCount = [...expenses, ...collections].filter(e => e.isOffline).length;
+  const pendingSyncCount = [...allExpenses, ...allCollections].filter(e => e.isOffline).length;
 
-  return { expenses, collections, addExpense, addCollection, deleteExpense, handleHandOver, handoverLoading, pendingSyncCount };
+  return { expenses, collections, handovers, lastHandoverAt, refreshCash, addExpense, addCollection, deleteExpense, handleHandOver, handoverLoading, pendingSyncCount };
 }

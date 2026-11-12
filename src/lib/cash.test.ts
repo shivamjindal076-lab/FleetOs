@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summarizeCash, formatSignedRupees } from './cash';
+import { summarizeCash, formatSignedRupees, entriesSince, cashDueSince } from './cash';
 import { toBookingId, rowToCollection, rowToExpense } from '@/components/driver/useDriverCash';
 
 describe('summarizeCash', () => {
@@ -45,5 +45,30 @@ describe('driver cash rows', () => {
     expect(toBookingId('54')).toBe(54);
     expect(toBookingId('demo')).toBeNull();
     expect(toBookingId(undefined)).toBeNull();
+  });
+});
+
+describe('cash since the last handover', () => {
+  const expenses = [
+    { amount: 100, timestamp: '2026-11-11T09:00:00Z' },
+    { amount: 40.1, timestamp: '2026-11-12T05:00:00Z' },
+  ];
+  const collections = [
+    { amount: 500, method: 'cash' as const, timestamp: '2026-11-11T08:00:00Z' },
+    { amount: 300.2, method: 'cash' as const, timestamp: '2026-11-12T04:00:00Z' },
+    { amount: 900, method: 'upi' as const, timestamp: '2026-11-12T04:30:00Z' },
+  ];
+
+  it('counts everything when there has been no handover', () => {
+    expect(cashDueSince(expenses, collections, null).cashToHandOver).toBe(660.1);
+  });
+
+  it('counts only entries after the last handover, even from an earlier day', () => {
+    expect(entriesSince(collections, '2026-11-12T03:00:00Z')).toHaveLength(2);
+    expect(cashDueSince(expenses, collections, '2026-11-11T12:00:00Z').cashToHandOver).toBe(260.1);
+  });
+
+  it('starts again at zero straight after a handover', () => {
+    expect(cashDueSince(expenses, collections, '2026-11-12T06:00:00Z').cashToHandOver).toBe(0);
   });
 });

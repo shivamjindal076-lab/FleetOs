@@ -32,8 +32,6 @@ Create `.env` from `.env.example`:
 ```
 VITE_SUPABASE_URL=            # https://<project-ref>.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY= # the public anon key, never the service-role key
-VITE_OLA_MAPS_API_KEY=         # optional; maps fall back to Mappls, then OpenStreetMap
-VITE_MAPPLS_ACCESS_TOKEN=      # optional
 ```
 
 ```bash
@@ -69,6 +67,13 @@ Key pieces:
 Driver sign-in uses anonymous Supabase sessions, so **Anonymous sign-ins** must be enabled under Authentication → Providers.
 
 Full setup for a new Supabase project, including deploying migrations and `migration repair`, is in [docs/SUPABASE_CLIENT_SETUP.md](docs/SUPABASE_CLIENT_SETUP.md).
+
+Map search and routes go through the `maps-proxy` edge function, which keeps the Ola Maps and Mappls keys on the server. Without it the app uses free OpenStreetMap services:
+
+```
+npx supabase secrets set OLA_MAPS_API_KEY=... MAPPLS_ACCESS_TOKEN=...
+npx supabase functions deploy maps-proxy
+```
 
 ### Edge function
 
